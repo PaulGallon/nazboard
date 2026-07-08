@@ -240,7 +240,7 @@ def render_dataset_pills(datasets: list[DatasetUsage]) -> str:
         usage_state = classify_dataset_usage(percent)
         pills.append(
             f"""
-      <span class=\"summary usage-pill {usage_state}\"><strong>{html.escape(dataset.name)}</strong> {html.escape(percent_text)} used</span>
+      <span class=\"summary usage-pill {usage_state}\"><span class=\"dot {usage_state}\"></span><strong>{html.escape(dataset.name)}</strong> {html.escape(percent_text)} used</span>
             """
         )
 
