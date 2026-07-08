@@ -33,6 +33,19 @@ class CommandResult(NamedTuple):
         return self.returncode == 0 and self.error is None
 
 
+class DatasetUsage(NamedTuple):
+    name: str
+    used: float
+    avail: float
+
+    @property
+    def used_percent(self) -> float:
+        total = self.used + self.avail
+        if total <= 0:
+            return 0.0
+        return max(0.0, min(100.0, (self.used / total) * 100.0))
+
+
 COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("ZFS health summary", ("zpool", "status", "-x")),
     ("zpool list", ("zpool", "list", "-H", "-o", "name,size,alloc,free,health")),
@@ -45,6 +58,16 @@ FIXTURE_FILES: dict[tuple[str, ...], str] = {
     ("zpool", "list", "-H", "-o", "name,size,alloc,free,health"): "zpool_list.txt",
     ("zpool", "status"): "zpool_status.txt",
     ("zfs", "list", "-o", "name,used,avail,refer,mountpoint"): "zfs_list.txt",
+}
+
+SIZE_UNITS: dict[str, float] = {
+    "B": 1.0,
+    "K": 1024.0,
+    "M": 1024.0**2,
+    "G": 1024.0**3,
+    "T": 1024.0**4,
+    "P": 1024.0**5,
+    "E": 1024.0**6,
 }
 
 
@@ -161,6 +184,85 @@ def classify_overall(results: list[CommandResult]) -> tuple[str, str]:
     return "warn", "ZFS reports attention needed"
 
 
+def parse_zfs_size(value: str) -> float | None:
+    value = value.strip()
+    if not value or value == "-":
+        return None
+
+    unit = value[-1].upper()
+    multiplier = SIZE_UNITS.get(unit)
+    number = value[:-1] if multiplier is not None else value
+    if multiplier is None:
+        multiplier = 1.0
+
+    try:
+        return float(number) * multiplier
+    except ValueError:
+        return None
+
+
+def root_dataset_usage(results: list[CommandResult]) -> list[DatasetUsage]:
+    zfs_list = next((result for result in results if result.title == "zfs list"), None)
+    if not zfs_list or not zfs_list.ok:
+        return []
+
+    datasets = []
+    for line in zfs_list.stdout.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) < 3 or parts[0].upper() == "NAME" or "/" in parts[0]:
+            continue
+
+        used = parse_zfs_size(parts[1])
+        avail = parse_zfs_size(parts[2])
+        if used is None or avail is None:
+            continue
+
+        datasets.append(DatasetUsage(parts[0], used, avail))
+    return datasets
+
+
+def classify_dataset_usage(percent: float) -> str:
+    if percent >= 85.0:
+        return "error"
+    if percent >= 75.0:
+        return "warn"
+    return "ok"
+
+
+def render_dataset_overview(datasets: list[DatasetUsage]) -> str:
+    if not datasets:
+        return ""
+
+    rows = []
+    for dataset in datasets:
+        percent = dataset.used_percent
+        percent_text = f"{percent:.0f}%"
+        usage_state = classify_dataset_usage(percent)
+        rows.append(
+            f"""
+        <div class=\"dataset\">
+          <div class=\"dataset-row\">
+            <strong>{html.escape(dataset.name)}</strong>
+            <span>{html.escape(percent_text)} used</span>
+          </div>
+          <div class=\"bar\" role=\"progressbar\" aria-label=\"{html.escape(dataset.name)} used space\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"{percent:.0f}\">
+            <div class=\"{usage_state}\" style=\"width:{percent:.1f}%\"></div>
+          </div>
+        </div>
+            """
+        )
+
+    return f"""
+    <section class=\"at-a-glance\" aria-label=\"Root dataset usage\">
+      <div class=\"at-a-glance-head\">
+        <h2>Dataset usage</h2>
+        <span>root datasets</span>
+      </div>
+      <div class=\"datasets\">{"".join(rows)}</div>
+    </section>
+    """
+
+
 def render_command(result: CommandResult) -> str:
     command = " ".join(result.command)
     status = "ok" if result.ok else "error"
@@ -191,6 +293,7 @@ def render_page() -> bytes:
     results = [run_command(title, command) for title, command in COMMANDS]
     state, message = classify_overall(results)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    dataset_overview = render_dataset_overview(root_dataset_usage(results))
     sections = "\n".join(render_command(result) for result in results)
     page = f"""<!doctype html>
 <html lang=\"en\">
@@ -212,6 +315,17 @@ def render_page() -> bytes:
     .dot {{ width:.85rem; height:.85rem; border-radius:50%; background:var(--muted); box-shadow:0 0 1rem currentColor; }}
     .ok {{ color:var(--ok); }} .warn {{ color:var(--warn); }} .error {{ color:var(--error); }}
     .dot.ok {{ background:var(--ok); }} .dot.warn {{ background:var(--warn); }} .dot.error {{ background:var(--error); }}
+    .at-a-glance {{ margin:1rem 1rem 0; padding:1rem; border:1px solid var(--border); border-radius:1rem; background:var(--panel); box-shadow:0 .75rem 2rem rgba(0,0,0,.18); }}
+    .at-a-glance-head {{ display:flex; justify-content:space-between; gap:1rem; align-items:center; margin-bottom:1rem; color:var(--muted); }}
+    .at-a-glance-head h2 {{ color:var(--text); }}
+    .datasets {{ display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr)); }}
+    .dataset-row {{ display:flex; justify-content:space-between; gap:1rem; align-items:baseline; margin-bottom:.45rem; }}
+    .dataset-row span {{ color:var(--muted); font-size:.9rem; white-space:nowrap; }}
+    .bar {{ height:.75rem; overflow:hidden; border-radius:999px; border:1px solid var(--border); background:#080c18; }}
+    .bar div {{ height:100%; border-radius:inherit; }}
+    .bar .ok {{ background:var(--ok); }}
+    .bar .warn {{ background:var(--warn); }}
+    .bar .error {{ background:var(--error); }}
     .card {{ background:var(--panel); border:1px solid var(--border); border-radius:1rem; overflow:hidden; box-shadow:0 .75rem 2rem rgba(0,0,0,.25); }}
     .card-head {{ display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1rem; border-bottom:1px solid var(--border); }}
     .pill {{ border:1px solid currentColor; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; white-space:nowrap; }}
@@ -225,6 +339,7 @@ def render_page() -> bytes:
     <p class=\"sub\">Read-only ZFS status dashboard. Auto-refreshes every 60 seconds. Generated {html.escape(generated)}.</p>
     <div class=\"summary\"><span class=\"dot {state}\"></span><strong class=\"{state}\">{html.escape(message)}</strong></div>
   </header>
+  {dataset_overview}
   <main>{sections}</main>
 </body>
 </html>"""
