@@ -28,8 +28,9 @@ class FixtureModeTests(TestCase):
         self.assertIn("storage01", page)
         self.assertIn("scsi-SATA_WDC_WD30EFRX-68A_WD-XXXXXXXXXXXX", page)
         self.assertIn("$ zpool status -x", page)
-        self.assertIn("Dataset usage", page)
-        self.assertIn("96% used", page)
+        self.assertIn('class="summary usage-pill error"', page)
+        self.assertIn("<strong>storage01</strong> 96% used", page)
+        self.assertNotIn("progressbar", page)
 
     def test_render_command_escapes_output(self):
         app = load_app()

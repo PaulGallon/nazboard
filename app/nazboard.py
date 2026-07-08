@@ -229,38 +229,22 @@ def classify_dataset_usage(percent: float) -> str:
     return "ok"
 
 
-def render_dataset_overview(datasets: list[DatasetUsage]) -> str:
+def render_dataset_pills(datasets: list[DatasetUsage]) -> str:
     if not datasets:
         return ""
 
-    rows = []
+    pills = []
     for dataset in datasets:
         percent = dataset.used_percent
         percent_text = f"{percent:.0f}%"
         usage_state = classify_dataset_usage(percent)
-        rows.append(
+        pills.append(
             f"""
-        <div class=\"dataset\">
-          <div class=\"dataset-row\">
-            <strong>{html.escape(dataset.name)}</strong>
-            <span>{html.escape(percent_text)} used</span>
-          </div>
-          <div class=\"bar\" role=\"progressbar\" aria-label=\"{html.escape(dataset.name)} used space\" aria-valuemin=\"0\" aria-valuemax=\"100\" aria-valuenow=\"{percent:.0f}\">
-            <div class=\"{usage_state}\" style=\"width:{percent:.1f}%\"></div>
-          </div>
-        </div>
+      <span class=\"summary usage-pill {usage_state}\"><strong>{html.escape(dataset.name)}</strong> {html.escape(percent_text)} used</span>
             """
         )
 
-    return f"""
-    <section class=\"at-a-glance\" aria-label=\"Root dataset usage\">
-      <div class=\"at-a-glance-head\">
-        <h2>Dataset usage</h2>
-        <span>root datasets</span>
-      </div>
-      <div class=\"datasets\">{"".join(rows)}</div>
-    </section>
-    """
+    return "".join(pills)
 
 
 def render_command(result: CommandResult) -> str:
@@ -293,7 +277,7 @@ def render_page() -> bytes:
     results = [run_command(title, command) for title, command in COMMANDS]
     state, message = classify_overall(results)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    dataset_overview = render_dataset_overview(root_dataset_usage(results))
+    dataset_pills = render_dataset_pills(root_dataset_usage(results))
     sections = "\n".join(render_command(result) for result in results)
     page = f"""<!doctype html>
 <html lang=\"en\">
@@ -311,21 +295,16 @@ def render_page() -> bytes:
     h2 {{ margin:0; font-size:1rem; }}
     .sub {{ color:var(--muted); margin:0; }}
     main {{ padding:1rem; display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(min(100%,34rem),1fr)); }}
+    .summaries {{ display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; margin-top:1rem; }}
     .summary {{ display:inline-flex; gap:.75rem; align-items:center; margin-top:1rem; padding:.75rem 1rem; border:1px solid var(--border); border-radius:999px; background:var(--panel); }}
+    .summaries .summary {{ margin-top:0; }}
+    .usage-pill {{ color:var(--text); }}
+    .usage-pill.ok {{ border-color:var(--ok); }}
+    .usage-pill.warn {{ border-color:var(--warn); }}
+    .usage-pill.error {{ border-color:var(--error); }}
     .dot {{ width:.85rem; height:.85rem; border-radius:50%; background:var(--muted); box-shadow:0 0 1rem currentColor; }}
     .ok {{ color:var(--ok); }} .warn {{ color:var(--warn); }} .error {{ color:var(--error); }}
     .dot.ok {{ background:var(--ok); }} .dot.warn {{ background:var(--warn); }} .dot.error {{ background:var(--error); }}
-    .at-a-glance {{ margin:1rem 1rem 0; padding:1rem; border:1px solid var(--border); border-radius:1rem; background:var(--panel); box-shadow:0 .75rem 2rem rgba(0,0,0,.18); }}
-    .at-a-glance-head {{ display:flex; justify-content:space-between; gap:1rem; align-items:center; margin-bottom:1rem; color:var(--muted); }}
-    .at-a-glance-head h2 {{ color:var(--text); }}
-    .datasets {{ display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr)); }}
-    .dataset-row {{ display:flex; justify-content:space-between; gap:1rem; align-items:baseline; margin-bottom:.45rem; }}
-    .dataset-row span {{ color:var(--muted); font-size:.9rem; white-space:nowrap; }}
-    .bar {{ height:.75rem; overflow:hidden; border-radius:999px; border:1px solid var(--border); background:#080c18; }}
-    .bar div {{ height:100%; border-radius:inherit; }}
-    .bar .ok {{ background:var(--ok); }}
-    .bar .warn {{ background:var(--warn); }}
-    .bar .error {{ background:var(--error); }}
     .card {{ background:var(--panel); border:1px solid var(--border); border-radius:1rem; overflow:hidden; box-shadow:0 .75rem 2rem rgba(0,0,0,.25); }}
     .card-head {{ display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1rem; border-bottom:1px solid var(--border); }}
     .pill {{ border:1px solid currentColor; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; white-space:nowrap; }}
@@ -337,9 +316,11 @@ def render_page() -> bytes:
   <header>
     <h1>nazboard</h1>
     <p class=\"sub\">Read-only ZFS status dashboard. Auto-refreshes every 60 seconds. Generated {html.escape(generated)}.</p>
-    <div class=\"summary\"><span class=\"dot {state}\"></span><strong class=\"{state}\">{html.escape(message)}</strong></div>
+    <div class=\"summaries\">
+      <div class=\"summary\"><span class=\"dot {state}\"></span><strong class=\"{state}\">{html.escape(message)}</strong></div>
+      {dataset_pills}
+    </div>
   </header>
-  {dataset_overview}
   <main>{sections}</main>
 </body>
 </html>"""
