@@ -1,0 +1,24 @@
+  pool: storage01
+ state: ONLINE
+  scan: scrub repaired 0B in 08:43:12 with 0 errors on Wed Jul  1 10:43:17 2026
+remove: Removal of vdev 2 copied 2.01T in 11h7m, completed on Wed Apr 22 23:13:01 2026
+	7.48M memory used for removed device mappings
+config:
+
+	NAME                                                STATE     READ WRITE CKSUM
+	storage01                                           ONLINE       0     0     0
+	  mirror-0                                          ONLINE       0     0     0
+	    scsi-SATA_WDC_WD30EFRX-68A_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	  mirror-1                                          ONLINE       0     0     0
+	    scsi-SATA_TOSHIBA_HDWD130_XXXXXXXXX             ONLINE       0     0     0
+	    scsi-SATA_TOSHIBA_HDWD130_XXXXXXXXX             ONLINE       0     0     0
+	  mirror-3                                          ONLINE       0     0     0
+	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	special	
+	  mirror-4                                          ONLINE       0     0     0
+	    nvme-SAMSUNG_MZVLB256HAHQ-000H1_XXXXXXXXXXXXXX  ONLINE       0     0     0
+	    nvme-SAMSUNG_MZVLB256HAHQ-000H1_XXXXXXXXXXXXXX  ONLINE       0     0     0
+
+errors: No known data errors

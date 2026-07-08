@@ -4,17 +4,20 @@
 from __future__ import annotations
 
 import html
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlsplit
 
 HOST = "0.0.0.0"
 PORT = 8080
 COMMAND_TIMEOUT_SECONDS = 5
+FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
 
 
 class CommandResult(NamedTuple):
@@ -37,9 +40,63 @@ COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("zfs list", ("zfs", "list", "-o", "name,used,avail,refer,mountpoint")),
 )
 
+FIXTURE_FILES: dict[tuple[str, ...], str] = {
+    ("zpool", "status", "-x"): "zpool_status_x.txt",
+    ("zpool", "list", "-H", "-o", "name,size,alloc,free,health"): "zpool_list.txt",
+    ("zpool", "status"): "zpool_status.txt",
+    ("zfs", "list", "-o", "name,used,avail,refer,mountpoint"): "zfs_list.txt",
+}
+
+
+def fixture_dir() -> Path | None:
+    """Return the optional directory containing captured command output."""
+    value = os.environ.get(FIXTURE_DIR_ENV)
+    if not value:
+        return None
+    return Path(value)
+
+
+def read_fixture(title: str, command: tuple[str, ...], directory: Path) -> CommandResult:
+    """Read captured output for a fixed command from a developer-supplied directory."""
+    filename = FIXTURE_FILES.get(command)
+    if filename is None:
+        return CommandResult(
+            title=title,
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr="",
+            error="No fixture filename is configured for this command.",
+        )
+
+    path = directory / filename
+    try:
+        output = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return CommandResult(
+            title=title,
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr="",
+            error=f"Failed to read fixture {path}: {exc}",
+        )
+
+    return CommandResult(
+        title=title,
+        command=command,
+        returncode=0,
+        stdout=output,
+        stderr="",
+    )
+
 
 def run_command(title: str, command: tuple[str, ...]) -> CommandResult:
     """Run a fixed ZFS command without invoking a shell."""
+    directory = fixture_dir()
+    if directory is not None:
+        return read_fixture(title, command, directory)
+
     executable = command[0]
     if shutil.which(executable) is None:
         return CommandResult(

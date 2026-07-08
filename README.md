@@ -54,10 +54,23 @@ Run syntax checks:
 python -m py_compile app/nazboard.py
 ```
 
+Run the fixture-backed render test without ZFS installed:
+
+```sh
+python -m unittest tests/test_fixtures.py
+```
+
 Run locally without Docker:
 
 ```sh
 python app/nazboard.py
+```
+
+Run locally with the redacted example output in `tests/` instead of calling
+`zpool` or `zfs`:
+
+```sh
+NAZBOARD_FIXTURE_DIR=tests python app/nazboard.py
 ```
 
 ## Release and publishing

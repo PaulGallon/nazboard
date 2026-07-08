@@ -1,0 +1,4 @@
+NAME                USED  AVAIL  REFER  MOUNTPOINT
+storage01          7.72T   320G  7.52T  /storage01
+storage01/backup    178G   320G   178G  /storage01/backup
+storage01/storage  21.6G   320G  21.6G  /storage01/storage

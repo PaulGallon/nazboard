@@ -1,0 +1,1 @@
+storage01	8.39T	7.72T	686G	ONLINE
