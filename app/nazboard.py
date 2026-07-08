@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""nazboard: a tiny read-only ZFS status dashboard."""
+
+from __future__ import annotations
+
+import html
+import shutil
+import subprocess
+from datetime import datetime, timezone
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import NamedTuple
+from urllib.parse import urlsplit
+
+HOST = "0.0.0.0"
+PORT = 8080
+COMMAND_TIMEOUT_SECONDS = 5
+
+
+class CommandResult(NamedTuple):
+    title: str
+    command: tuple[str, ...]
+    returncode: int | None
+    stdout: str
+    stderr: str
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.returncode == 0 and self.error is None
+
+
+COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ZFS health summary", ("zpool", "status", "-x")),
+    ("zpool list", ("zpool", "list", "-H", "-o", "name,size,alloc,free,health")),
+    ("zpool status", ("zpool", "status")),
+    ("zfs list", ("zfs", "list", "-o", "name,used,avail,refer,mountpoint")),
+)
+
+
+def run_command(title: str, command: tuple[str, ...]) -> CommandResult:
+    """Run a fixed ZFS command without invoking a shell."""
+    executable = command[0]
+    if shutil.which(executable) is None:
+        return CommandResult(
+            title=title,
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr="",
+            error=(
+                f"{executable!r} was not found in PATH. Install zfsutils-linux "
+                "or use the nazboard container image."
+            ),
+        )
+
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return CommandResult(
+            title=title,
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr="",
+            error=f"Command timed out after {COMMAND_TIMEOUT_SECONDS} seconds.",
+        )
+    except OSError as exc:
+        return CommandResult(
+            title=title,
+            command=command,
+            returncode=None,
+            stdout="",
+            stderr="",
+            error=f"Failed to execute command: {exc}",
+        )
+
+    return CommandResult(
+        title=title,
+        command=command,
+        returncode=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
+
+
+def classify_overall(results: list[CommandResult]) -> tuple[str, str]:
+    health = results[0] if results else None
+    if not health or health.error:
+        return "error", "Unable to read ZFS health"
+    combined = f"{health.stdout}\n{health.stderr}".lower()
+    if health.returncode != 0:
+        return "error", "ZFS health command failed"
+    if "all pools are healthy" in combined:
+        return "ok", "All pools are healthy"
+    if "no pools available" in combined:
+        return "warn", "No ZFS pools available"
+    return "warn", "ZFS reports attention needed"
+
+
+def render_command(result: CommandResult) -> str:
+    command = " ".join(result.command)
+    status = "ok" if result.ok else "error"
+    returncode = "not run" if result.returncode is None else str(result.returncode)
+    parts = []
+    if result.error:
+        parts.append(f"ERROR: {result.error}")
+    if result.stdout:
+        parts.append(result.stdout.rstrip())
+    if result.stderr:
+        parts.append("STDERR:\n" + result.stderr.rstrip())
+    if not parts:
+        parts.append("(no output)")
+    output = html.escape("\n\n".join(parts))
+    return f"""
+      <section class=\"card\">
+        <div class=\"card-head\">
+          <h2>{html.escape(result.title)}</h2>
+          <span class=\"pill {status}\">exit {html.escape(returncode)}</span>
+        </div>
+        <p class=\"command\">$ {html.escape(command)}</p>
+        <pre>{output}</pre>
+      </section>
+    """
+
+
+def render_page() -> bytes:
+    results = [run_command(title, command) for title, command in COMMANDS]
+    state, message = classify_overall(results)
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    sections = "\n".join(render_command(result) for result in results)
+    page = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <meta http-equiv=\"refresh\" content=\"60\">
+  <title>nazboard</title>
+  <style>
+    :root {{ color-scheme: dark; --bg:#0b1020; --panel:#121a2d; --text:#e6edf7; --muted:#9aa8bd; --ok:#3ddc84; --warn:#ffbf47; --error:#ff5d5d; --border:#263149; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }}
+    header {{ padding:2rem; border-bottom:1px solid var(--border); background:linear-gradient(135deg,#111a30,#0b1020); }}
+    h1 {{ margin:0 0 .5rem; font-size:clamp(2rem,5vw,3.5rem); }}
+    h2 {{ margin:0; font-size:1rem; }}
+    .sub {{ color:var(--muted); margin:0; }}
+    main {{ padding:1rem; display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(min(100%,34rem),1fr)); }}
+    .summary {{ display:inline-flex; gap:.75rem; align-items:center; margin-top:1rem; padding:.75rem 1rem; border:1px solid var(--border); border-radius:999px; background:var(--panel); }}
+    .dot {{ width:.85rem; height:.85rem; border-radius:50%; background:var(--muted); box-shadow:0 0 1rem currentColor; }}
+    .ok {{ color:var(--ok); }} .warn {{ color:var(--warn); }} .error {{ color:var(--error); }}
+    .dot.ok {{ background:var(--ok); }} .dot.warn {{ background:var(--warn); }} .dot.error {{ background:var(--error); }}
+    .card {{ background:var(--panel); border:1px solid var(--border); border-radius:1rem; overflow:hidden; box-shadow:0 .75rem 2rem rgba(0,0,0,.25); }}
+    .card-head {{ display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1rem; border-bottom:1px solid var(--border); }}
+    .pill {{ border:1px solid currentColor; border-radius:999px; padding:.2rem .55rem; font-size:.8rem; white-space:nowrap; }}
+    .command {{ margin:0; padding:.75rem 1rem 0; color:var(--muted); font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9rem; }}
+    pre {{ margin:0; padding:1rem; overflow:auto; white-space:pre-wrap; word-break:break-word; font: .9rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>nazboard</h1>
+    <p class=\"sub\">Read-only ZFS status dashboard. Auto-refreshes every 60 seconds. Generated {html.escape(generated)}.</p>
+    <div class=\"summary\"><span class=\"dot {state}\"></span><strong class=\"{state}\">{html.escape(message)}</strong></div>
+  </header>
+  <main>{sections}</main>
+</body>
+</html>"""
+    return page.encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "nazboard/0.1"
+
+    def do_GET(self) -> None:
+        path = urlsplit(self.path).path
+        if path == "/healthz":
+            body = b"ok\n"
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path != "/":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        body = render_page()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:
+        print(f"{self.address_string()} - {format % args}")
+
+
+def main() -> None:
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"nazboard listening on http://{HOST}:{PORT}")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
