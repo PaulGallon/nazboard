@@ -51,26 +51,26 @@ If you run nazboard under an external orchestrator, provide equivalent container
 Run syntax checks:
 
 ```sh
-python -m py_compile app/nazboard.py
+python3 -m py_compile app/nazboard.py
 ```
 
 Run the fixture-backed render test without ZFS installed:
 
 ```sh
-python -m unittest tests/test_fixtures.py
+python3 -m unittest tests/test_fixtures.py
 ```
 
 Run locally without Docker:
 
 ```sh
-python app/nazboard.py
+python3 app/nazboard.py
 ```
 
 Run locally with the redacted example output in `tests/` instead of calling
 `zpool` or `zfs`:
 
 ```sh
-NAZBOARD_FIXTURE_DIR=tests python app/nazboard.py
+NAZBOARD_FIXTURE_DIR=tests python3 app/nazboard.py
 ```
 
 ## Release and publishing

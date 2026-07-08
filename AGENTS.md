@@ -14,7 +14,7 @@ nazboard is a tiny read-only ZFS status dashboard. It serves a Python standard l
 - Keep CSS embedded in the generated HTML unless there is a strong reason to change it.
 
 ## Test and build commands
-- `python -m py_compile app/nazboard.py`
+- `python3 -m py_compile app/nazboard.py`
 - During development, do not run Docker builds unless the user explicitly asks.
 
 ## Workflow
