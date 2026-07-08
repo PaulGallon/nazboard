@@ -1,0 +1,9 @@
+.git
+.github
+chart
+README.md
+LICENSE
+AGENTS.md
+__pycache__
+*.py[cod]
+.env
