@@ -6,26 +6,7 @@ It uses only the Python standard library, serves a small dark-themed HTML page o
 
 ## Example output
 
-```text
-nazboard
-Read-only ZFS status dashboard. Auto-refreshes every 60 seconds.
-
-Overall: All pools are healthy
-
-$ zpool status -x
-all pools are healthy
-
-$ zpool list -H -o name,size,alloc,free,health
-...
-
-$ zpool status
-...
-
-$ zfs list -o name,used,avail,refer,mountpoint
-...
-```
-
-> Screenshot placeholder: add `docs/screenshot.png` after deploying against a real ZFS host.
+![Screenshot showing nazboard interface](docs/screenshot.png)
 
 ## ZFS access caveat
 
