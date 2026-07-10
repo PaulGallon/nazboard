@@ -7,6 +7,7 @@ import html
 import os
 import shutil
 import subprocess
+import threading
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,7 +18,22 @@ from urllib.parse import urlsplit
 HOST = "0.0.0.0"
 PORT = 8080
 COMMAND_TIMEOUT_SECONDS = 5
+MAX_COMMAND_OUTPUT_CHARS = 200_000
+MAX_RENDER_CONCURRENCY = 4
 FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
+COMMAND_ENV = {"LC_ALL": "C", "LANG": "C"}
+SECURITY_HEADERS = (
+    (
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    ),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+    ("Cache-Control", "no-store"),
+)
+RENDER_SEMAPHORE = threading.BoundedSemaphore(MAX_RENDER_CONCURRENCY)
 
 
 class CommandResult(NamedTuple):
@@ -141,6 +157,7 @@ def run_command(title: str, command: tuple[str, ...]) -> CommandResult:
             capture_output=True,
             text=True,
             timeout=COMMAND_TIMEOUT_SECONDS,
+            env=os.environ | COMMAND_ENV,
         )
     except subprocess.TimeoutExpired:
         return CommandResult(
@@ -161,13 +178,38 @@ def run_command(title: str, command: tuple[str, ...]) -> CommandResult:
             error=f"Failed to execute command: {exc}",
         )
 
+    stdout, stdout_truncated = truncate_output(completed.stdout)
+    stderr, stderr_truncated = truncate_output(completed.stderr)
+    notes = []
+    if stdout_truncated:
+        notes.append(f"stdout truncated to {MAX_COMMAND_OUTPUT_CHARS} characters")
+    if stderr_truncated:
+        notes.append(f"stderr truncated to {MAX_COMMAND_OUTPUT_CHARS} characters")
+    stderr = append_notes(stderr, notes)
+
     return CommandResult(
         title=title,
         command=command,
         returncode=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        stdout=stdout,
+        stderr=stderr,
     )
+
+
+def truncate_output(output: str) -> tuple[str, bool]:
+    """Limit command output rendered into a response."""
+    if len(output) <= MAX_COMMAND_OUTPUT_CHARS:
+        return output, False
+    return output[:MAX_COMMAND_OUTPUT_CHARS] + "\n... [truncated]", True
+
+
+def append_notes(output: str, notes: list[str]) -> str:
+    if not notes:
+        return output
+    suffix = "\n".join(f"NOTE: {note}" for note in notes)
+    if output:
+        return f"{output.rstrip()}\n{suffix}\n"
+    return f"{suffix}\n"
 
 
 def classify_overall(results: list[CommandResult]) -> tuple[str, str]:
@@ -330,7 +372,36 @@ def render_page() -> bytes:
 class Handler(BaseHTTPRequestHandler):
     server_version = "nazboard/0.1"
 
+    def end_headers(self) -> None:
+        for name, value in SECURITY_HEADERS:
+            self.send_header(name, value)
+        super().end_headers()
+
+    def do_HEAD(self) -> None:
+        self.handle_request(include_body=False)
+
     def do_GET(self) -> None:
+        self.handle_request(include_body=True)
+
+    def do_POST(self) -> None:
+        self.reject_unsupported_method()
+
+    def do_PUT(self) -> None:
+        self.reject_unsupported_method()
+
+    def do_DELETE(self) -> None:
+        self.reject_unsupported_method()
+
+    def do_PATCH(self) -> None:
+        self.reject_unsupported_method()
+
+    def reject_unsupported_method(self) -> None:
+        self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+        self.send_header("Allow", "GET, HEAD")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def handle_request(self, include_body: bool) -> None:
         path = urlsplit(self.path).path
         if path == "/healthz":
             body = b"ok\n"
@@ -338,18 +409,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            if include_body:
+                self.wfile.write(body)
             return
         if path != "/":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
-        body = render_page()
+        if not RENDER_SEMAPHORE.acquire(blocking=False):
+            body = b"busy\n"
+            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if include_body:
+                self.wfile.write(body)
+            return
+        try:
+            body = render_page()
+        finally:
+            RENDER_SEMAPHORE.release()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if include_body:
+            self.wfile.write(body)
 
     def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} - {format % args}")

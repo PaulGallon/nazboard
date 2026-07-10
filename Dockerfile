@@ -13,4 +13,6 @@ RUN chmod 0555 /app/nazboard.py
 
 USER 10001:10001
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import sys; from urllib.request import urlopen; sys.exit(0 if urlopen('http://127.0.0.1:8080/healthz', timeout=2).read() == b'ok\\n' else 1)"
 ENTRYPOINT ["python", "/app/nazboard.py"]

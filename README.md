@@ -40,11 +40,12 @@ If you run nazboard under an external orchestrator, provide equivalent container
 ## Security notes
 
 - nazboard is read-only and exposes no forms or control endpoints.
-- The web server ignores query strings and only serves `/` and `/healthz`.
-- Command execution uses fixed argument lists and does not use `shell=True`.
-- Command output is HTML-escaped before rendering.
+- The web server ignores query strings, only serves `/` and `/healthz`, and returns `405` for common unsupported write-oriented HTTP methods.
+- Responses include restrictive security headers, including a CSP that allows only the embedded stylesheet required by the page.
+- Command execution uses fixed argument lists, forces the C locale for predictable parsing, has a five-second timeout per command, and does not use `shell=True`.
+- Command output is HTML-escaped before rendering and very large command output is truncated in the rendered response.
 - The container runs as UID/GID `10001` and supports a read-only root filesystem.
-- Restrict network access to trusted administrators; nazboard does not implement authentication.
+- Restrict network access to trusted administrators; nazboard does not implement authentication and exposes pool, device, dataset and mountpoint names.
 
 ## Development
 
