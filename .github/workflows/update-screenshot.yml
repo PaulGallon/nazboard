@@ -4,8 +4,13 @@ on:
   push:
     branches: ["main"]
     paths:
+      - ".github/workflows/update-screenshot.yml"
+      - "components.json"
+      - "index.html"
+      - "public/**"
       - "server/**"
       - "src/**"
+      - "tests/**"
       - "package*.json"
       - "tsconfig*.json"
       - "vite.config.ts"
@@ -27,6 +32,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
       - name: Start fixture server
