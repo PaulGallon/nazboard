@@ -1,9 +1,13 @@
 .git
 .github
-chart
-README.md
-LICENSE
-AGENTS.md
+.agents
+.codex
+build
+dist
+node_modules
+coverage
 __pycache__
 *.py[cod]
 .env
+*.local
+*.tsbuildinfo

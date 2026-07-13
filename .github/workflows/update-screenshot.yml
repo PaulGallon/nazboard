@@ -4,7 +4,11 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "app/*"
+      - "server/**"
+      - "src/**"
+      - "package*.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
   workflow_dispatch:
 
 permissions:
@@ -16,11 +20,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Check syntax
-        run: python3 -m py_compile app/nazboard.py
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
       - name: Start fixture server
         run: |
-          NAZBOARD_FIXTURE_DIR=tests python3 app/nazboard.py &
+          NAZBOARD_FIXTURE_DIR=tests npm start &
           echo "server_pid=$!" >> "$GITHUB_ENV"
       - name: Wait for fixture server
         run: |

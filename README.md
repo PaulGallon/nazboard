@@ -1,8 +1,8 @@
 # nazboard
 
-nazboard is a very lightweight, read-only web dashboard for at-a-glance ZFS pool and dataset status.
+nazboard is a lightweight, read-only web dashboard for at-a-glance ZFS pool and dataset status.
 
-It uses only the Python standard library, serves a small dark-themed HTML page on port `8080`, and runs fixed `zpool`/`zfs` commands without accepting web UI input.
+It serves a Vite React UI built with shadcn/ui and a small TypeScript HTTP server on port `8080`. The server runs fixed `zpool`/`zfs` commands with Node built-ins and exposes status as JSON.
 
 ## Example output
 
@@ -11,7 +11,6 @@ It uses only the Python standard library, serves a small dark-themed HTML page o
 ## ZFS access caveat
 
 nazboard reads ZFS status from the host kernel via `zpool` and `zfs`. The container image includes `zfsutils-linux`, but the host still needs working ZFS kernel support and the container must be able to access `/dev/zfs`.
-
 
 ## Local Docker usage
 
@@ -33,44 +32,64 @@ docker run --rm \
 
 Open <http://localhost:8080>. Health check endpoint: <http://localhost:8080/healthz>.
 
+## API
+
+`GET /api/status` returns the current read-only ZFS status:
+
+- `overall`: health state and message
+- `issues`: warnings and errors across commands, pools, and datasets
+- `pools`: pool space usage and nested dataset trees
+- `commands`: diagnostic output from the fixed ZFS commands
+
 ## Deployment beyond local Docker
 
 If you run nazboard under an external orchestrator, provide equivalent container settings yourself: expose port `8080`, keep the filesystem read-only where possible, run as a non-root user, and pass through `/dev/zfs` so the bundled `zpool` and `zfs` tools can read host ZFS status. Some environments may require privileged container settings for ZFS device access.
 
 ## Security notes
 
-- nazboard is read-only and exposes no forms or control endpoints.
-- The web server ignores query strings and only serves `/` and `/healthz`.
-- Command execution uses fixed argument lists and does not use `shell=True`.
-- Command output is HTML-escaped before rendering.
+- nazboard is read-only and exposes no forms or ZFS control endpoints.
+- The web UI does not send pool or dataset identifiers to the server for command execution.
+- Command execution uses fixed argument lists with `execFile`.
+- Command output is returned as JSON and rendered by React as text.
 - The container runs as UID/GID `10001` and supports a read-only root filesystem.
 - Restrict network access to trusted administrators; nazboard does not implement authentication.
 
 ## Development
 
-Run syntax checks:
+Install dependencies:
 
 ```sh
-python3 -m py_compile app/nazboard.py
+npm ci
 ```
 
-Run the fixture-backed render test without ZFS installed:
+Run tests:
 
 ```sh
-python3 -m unittest tests/test_fixtures.py
+npm test
 ```
 
-Run locally without Docker:
+Build the server and UI:
 
 ```sh
-python3 app/nazboard.py
+npm run build
 ```
 
-Run locally with the redacted example output in `tests/` instead of calling
-`zpool` or `zfs`:
+Run locally after building:
 
 ```sh
-NAZBOARD_FIXTURE_DIR=tests python3 app/nazboard.py
+npm start
+```
+
+Run locally with the redacted example output in `tests/` instead of calling `zpool` or `zfs`:
+
+```sh
+NAZBOARD_FIXTURE_DIR=tests npm start
+```
+
+For frontend-only development, run:
+
+```sh
+npm run dev
 ```
 
 ## Release and publishing
@@ -82,7 +101,6 @@ ghcr.io/<owner>/nazboard
 ```
 
 It runs on pushes to `main` and tags matching `v*.*.*`. Image tags include branch tags, SHA tags, semantic version tags, and `latest` for the default branch.
-
 
 ## License
 

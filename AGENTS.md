@@ -1,20 +1,22 @@
 # AGENTS.md
 
 ## Project overview
-nazboard is a tiny read-only ZFS status dashboard. It serves a Python standard library HTTP application that shells out to fixed `zpool` and `zfs` commands and renders escaped command output as HTML.
+nazboard is a tiny read-only ZFS status dashboard. It serves a Vite React UI built with shadcn/ui and a small TypeScript Node HTTP server that shells out to fixed `zpool` and `zfs` commands.
 
 ## Constraints
-- Keep dependencies minimal.
-- Prefer the Python standard library.
-- Do not add Flask, FastAPI, Node.js, or frontend frameworks.
+- Keep dependencies minimal and purposeful.
+- Use Node built-ins for the backend HTTP server, static file serving, filesystem access, and command execution unless there is a strong reason not to.
+- React, Vite, TypeScript, shadcn/ui, Tailwind, Recharts, Base UI, and lucide-react are allowed for the UI.
+- Do not add Express, Fastify, Flask, FastAPI, or additional server frameworks.
 - Do not add write, repair, destroy, import/export, snapshot, or other control operations for ZFS.
-- The dashboard must stay read-only and must not accept user input through the web UI.
-- Avoid `shell=True`; use fixed argument lists with `subprocess.run`.
-- Escape all command output before rendering HTML.
-- Keep CSS embedded in the generated HTML unless there is a strong reason to change it.
+- The dashboard must stay read-only and must not accept user input through the web UI for ZFS command execution.
+- Avoid shell execution; use fixed argument lists with `child_process.execFile`.
+- Render command output as text in React. Do not inject command output as HTML.
+- Prefer shadcn components already installed in `src/components/ui` before adding custom UI.
 
 ## Test and build commands
-- `python3 -m py_compile app/nazboard.py`
+- `npm test`
+- `npm run build`
 - During development, do not run Docker builds unless the user explicitly asks.
 
 ## Workflow
