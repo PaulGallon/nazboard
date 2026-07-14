@@ -76,16 +76,10 @@ export function AppSidebar({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              size="lg"
-              tooltip="nazboard"
-              aria-label="nazboard"
-            >
-              <HardDriveIcon />
-              <span className="font-heading text-sm group-data-[collapsible=icon]:hidden">
-                nazboard
-              </span>
-            </SidebarMenuButton>
+            <div className="flex h-12 items-center gap-2 px-2 text-sidebar-foreground">
+              <HardDriveIcon className="size-4 shrink-0" aria-hidden="true" />
+              <span className="font-heading text-sm">nazboard</span>
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

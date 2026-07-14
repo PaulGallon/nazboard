@@ -17,6 +17,8 @@ export const COMMAND_CACHE_TTL_MS = 60_000
 export const CACHE_DIR_ENV = "NAZBOARD_CACHE_DIR"
 export const FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
 
+const OBSERVED_AT = Symbol("observedAt")
+
 type State = "ok" | "warn" | "error"
 
 export type CommandResult = {
@@ -26,6 +28,18 @@ export type CommandResult = {
   stdout: string
   stderr: string
   error: string | null
+}
+
+type ObservedCommandResult = CommandResult & {
+  [OBSERVED_AT]?: number
+}
+
+function withObservedAt(result: CommandResult, observedAt = Date.now()) {
+  Object.defineProperty(result, OBSERVED_AT, {
+    value: observedAt,
+    enumerable: false,
+  })
+  return result as ObservedCommandResult
 }
 
 export type Issue = {
@@ -303,7 +317,7 @@ async function readCachedCommand(
       Array.isArray(cached.command) &&
       commandKey(cached.command) === commandKey(command)
     ) {
-      return cached
+      return withObservedAt(cached, cacheStat.mtimeMs)
     }
   } catch {
     return null
@@ -350,7 +364,10 @@ export async function runCommand(
       },
       (error, stdout, stderr) => {
         const resolveAndCache = (result: CommandResult) => {
-          void writeCachedCommand(result).finally(() => resolveCommand(result))
+          const observedResult = withObservedAt(result)
+          void writeCachedCommand(result).finally(() =>
+            resolveCommand(observedResult)
+          )
         }
 
         if (!error) {
@@ -933,9 +950,14 @@ export async function getStatus(): Promise<StatusPayload> {
     parseVdevs(commands),
     parseZfsProperties(commands)
   )
+  const generatedAt = Math.min(
+    ...baseCommands.map(
+      (command) => (command as ObservedCommandResult)[OBSERVED_AT] ?? Date.now()
+    )
+  )
 
   return {
-    generated_at: new Date().toISOString(),
+    generated_at: new Date(generatedAt).toISOString(),
     overall,
     issues: collectIssues(overall, pools, commands),
     pools,

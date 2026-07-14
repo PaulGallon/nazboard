@@ -383,7 +383,7 @@ function Overview({ status }: { status: StatusPayload }) {
 
       <IssuesCard
         issues={status.issues}
-        description="Warnings and errors across commands, pools, and datasets"
+        description="Warnings and errors across all pools"
         emptyDescription={status.overall.message}
         includeCommands
       />
@@ -874,7 +874,7 @@ export function App() {
             orientation="vertical"
             className="data-[orientation=vertical]:h-4"
           />
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="min-w-0">
               <h1 className="truncate font-heading text-lg font-semibold">
                 {title}
@@ -885,11 +885,6 @@ export function App() {
                   : "Loading status"}
               </p>
             </div>
-            {status && (
-              <Badge variant={statusVariant(status.overall.state)}>
-                {status.overall.message}
-              </Badge>
-            )}
           </div>
         </header>
         <Separator />
