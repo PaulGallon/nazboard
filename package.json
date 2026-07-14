@@ -9,7 +9,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "generate:test-data": "node scripts/generate-test-data.mjs",
+    "generate:test-data": "sh scripts/generate-test-data.sh",
     "start": "node build/server/nazboard.js",
     "test": "npm run build:server && node --test build/tests/*.test.js",
     "typecheck": "tsc --noEmit",

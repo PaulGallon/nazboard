@@ -100,22 +100,27 @@ NAZBOARD_FIXTURE_DIR=tests npm start
 ```
 
 To refresh those fixtures on a machine with ZFS pools, datasets, and snapshots,
-run:
+run the shell script directly (Node.js is not required):
 
 ```sh
-npm run generate:test-data
+./scripts/generate-test-data.sh
 ```
 
 The generator runs the same five fixed, read-only `zpool` and `zfs` commands as
 the server and replaces the corresponding files in `tests/` only after every
-command succeeds. To capture the files elsewhere for review first, pass an
-output directory:
+command succeeds. It replaces leaf device paths and serial-based names in both
+`zpool status` outputs with stable `disk-N` placeholders. To capture the files
+elsewhere for review first, pass an output directory:
 
 ```sh
-npm run generate:test-data -- --output-dir /tmp/nazboard-test-data
+./scripts/generate-test-data.sh --output-dir /tmp/nazboard-test-data
 ```
 
-Review and redact host, pool, dataset, and device names before committing
+Developers with Node.js installed can also use `npm run generate:test-data`.
+Pass `--no-redact-device-names` only when the original device identifiers are
+intentionally required.
+
+Review and redact pool, dataset, and other host-specific names before committing
 generated data from a real system.
 
 For frontend-only development, run:
