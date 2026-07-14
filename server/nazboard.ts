@@ -26,7 +26,7 @@ export type CommandResult = {
 
 export type Issue = {
   severity: State
-  scope: "overall" | "pool" | "dataset" | "command"
+  scope: "overall" | "pool" | "vdev" | "disk" | "dataset" | "command"
   name: string
   message: string
 }
@@ -37,10 +37,40 @@ export type DatasetStatus = {
   used_bytes: number
   available_bytes: number
   refer_bytes: number | null
+  snapshot_used_bytes: number
   mountpoint: string
   used_percent: number
   state: State
+  snapshots: SnapshotStatus[]
   children: DatasetStatus[]
+}
+
+export type SnapshotStatus = {
+  name: string
+  path: string
+  dataset_path: string
+  used_bytes: number
+  refer_bytes: number | null
+  created_at: string | null
+}
+
+export type DiskStatus = {
+  name: string
+  state: string
+  read_errors: number
+  write_errors: number
+  checksum_errors: number
+}
+
+export type VdevStatus = DiskStatus & {
+  type: string
+  class_name: string
+  disks: DiskStatus[]
+}
+
+export type PoolTopology = {
+  pool_name: string
+  vdevs: VdevStatus[]
 }
 
 export type PoolStatus = {
@@ -50,6 +80,8 @@ export type PoolStatus = {
   free_bytes: number
   health: string
   used_percent: number
+  snapshot_used_bytes: number
+  vdevs: VdevStatus[]
   datasets: DatasetStatus[]
 }
 
@@ -68,7 +100,30 @@ const COMMANDS: Array<[string, string[]]> = [
   ["ZFS health summary", ["zpool", "status", "-x"]],
   ["zpool list", ["zpool", "list", "-H", "-o", "name,size,alloc,free,health"]],
   ["zpool status", ["zpool", "status"]],
-  ["zfs list", ["zfs", "list", "-o", "name,used,avail,refer,mountpoint"]],
+  [
+    "zfs list",
+    [
+      "zfs",
+      "list",
+      "-H",
+      "-p",
+      "-o",
+      "name,used,avail,refer,mountpoint,usedbysnapshots",
+    ],
+  ],
+  [
+    "zfs snapshots",
+    [
+      "zfs",
+      "list",
+      "-H",
+      "-p",
+      "-t",
+      "snapshot",
+      "-o",
+      "name,used,refer,creation",
+    ],
+  ],
 ]
 
 const FIXTURE_FILES = new Map<string, string>([
@@ -79,8 +134,28 @@ const FIXTURE_FILES = new Map<string, string>([
   ],
   [["zpool", "status"].join("\0"), "zpool_status.txt"],
   [
-    ["zfs", "list", "-o", "name,used,avail,refer,mountpoint"].join("\0"),
+    [
+      "zfs",
+      "list",
+      "-H",
+      "-p",
+      "-o",
+      "name,used,avail,refer,mountpoint,usedbysnapshots",
+    ].join("\0"),
     "zfs_list.txt",
+  ],
+  [
+    [
+      "zfs",
+      "list",
+      "-H",
+      "-p",
+      "-t",
+      "snapshot",
+      "-o",
+      "name,used,refer,creation",
+    ].join("\0"),
+    "zfs_snapshots.txt",
   ],
 ])
 
@@ -305,6 +380,8 @@ export function parsePools(results: CommandResult[]): PoolStatus[] {
         free_bytes: free,
         health,
         used_percent: usedPercent(allocated, free),
+        snapshot_used_bytes: 0,
+        vdevs: [],
         datasets: [],
       }
       return pool
@@ -323,7 +400,7 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split(/\s+/, 5)
+      const parts = line.split(/\s+/, 6)
       if (parts.length < 5 || parts[0].toUpperCase() === "NAME") {
         return null
       }
@@ -331,6 +408,7 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
       const used = parseZfsSize(parts[1])
       const available = parseZfsSize(parts[2])
       const refer = parseZfsSize(parts[3])
+      const snapshotUsed = parseZfsSize(parts[5] ?? "-") ?? 0
       if (used === null || available === null) {
         return null
       }
@@ -343,14 +421,185 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
         used_bytes: used,
         available_bytes: available,
         refer_bytes: refer,
+        snapshot_used_bytes: snapshotUsed,
         mountpoint: parts[4],
         used_percent: percent,
         state: classifyUsage(percent),
+        snapshots: [],
         children: [],
       }
       return dataset
     })
     .filter((dataset): dataset is DatasetStatus => dataset !== null)
+}
+
+export function parseSnapshots(results: CommandResult[]): SnapshotStatus[] {
+  const snapshotList = results.find(
+    (result) => result.title === "zfs snapshots"
+  )
+  if (!snapshotList || !commandOk(snapshotList)) {
+    return []
+  }
+
+  return snapshotList.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\s+/, 4)
+      if (parts.length < 4 || parts[0].toUpperCase() === "NAME") {
+        return null
+      }
+
+      const separator = parts[0].lastIndexOf("@")
+      const used = parseZfsSize(parts[1])
+      if (separator < 1 || used === null) {
+        return null
+      }
+
+      const creationSeconds = Number.parseInt(parts[3], 10)
+      const snapshot: SnapshotStatus = {
+        name: parts[0].slice(separator + 1),
+        path: parts[0],
+        dataset_path: parts[0].slice(0, separator),
+        used_bytes: used,
+        refer_bytes: parseZfsSize(parts[2]),
+        created_at: Number.isNaN(creationSeconds)
+          ? null
+          : new Date(creationSeconds * 1000).toISOString(),
+      }
+      return snapshot
+    })
+    .filter((snapshot): snapshot is SnapshotStatus => snapshot !== null)
+}
+
+type VdevNode = DiskStatus & {
+  indent: number
+  class_name: string
+  children: VdevNode[]
+}
+
+const VDEV_CLASSES = new Map<string, string>([
+  ["logs", "log"],
+  ["log", "log"],
+  ["cache", "cache"],
+  ["spares", "spare"],
+  ["spare", "spare"],
+  ["special", "special"],
+  ["dedup", "dedup"],
+])
+
+function vdevType(name: string, className: string) {
+  const namedType = name.match(/^(mirror|raidz\d?|draid\d?|replacing|spare)/i)
+  return (
+    namedType?.[1].toLowerCase() ?? (className === "data" ? "disk" : className)
+  )
+}
+
+function leafDisks(node: VdevNode): DiskStatus[] {
+  if (node.children.length === 0) {
+    return [
+      {
+        name: node.name,
+        state: node.state,
+        read_errors: node.read_errors,
+        write_errors: node.write_errors,
+        checksum_errors: node.checksum_errors,
+      },
+    ]
+  }
+  return node.children.flatMap(leafDisks)
+}
+
+export function parseVdevs(results: CommandResult[]): PoolTopology[] {
+  const status = results.find((result) => result.title === "zpool status")
+  if (!status || !commandOk(status)) {
+    return []
+  }
+
+  const poolMatches = [...status.stdout.matchAll(/^\s*pool:\s+(\S+)\s*$/gm)]
+
+  return poolMatches.map((poolMatch, poolIndex) => {
+    const poolName = poolMatch[1]
+    const start = poolMatch.index ?? 0
+    const end = poolMatches[poolIndex + 1]?.index ?? status.stdout.length
+    const section = status.stdout.slice(start, end)
+    const configStart = section.indexOf("config:")
+    const configEnd = section.indexOf("errors:", configStart)
+    const config =
+      configStart >= 0
+        ? section.slice(
+            configStart,
+            configEnd >= 0 ? configEnd : section.length
+          )
+        : ""
+
+    let className = "data"
+    let root: VdevNode | null = null
+    const stack: VdevNode[] = []
+
+    for (const line of config.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      const nextClass = VDEV_CLASSES.get(trimmed.toLowerCase())
+      if (nextClass) {
+        className = nextClass
+        stack.splice(root ? 1 : 0)
+        continue
+      }
+
+      const match = line.match(
+        /^(\s*)(\S+)\s+(\S+)\s+(\d+|-)\s+(\d+|-)\s+(\d+|-)(?:\s+.*)?$/
+      )
+      if (!match || match[2].toUpperCase() === "NAME") {
+        continue
+      }
+
+      const node: VdevNode = {
+        name: match[2],
+        state: match[3],
+        read_errors: Number.parseInt(match[4], 10) || 0,
+        write_errors: Number.parseInt(match[5], 10) || 0,
+        checksum_errors: Number.parseInt(match[6], 10) || 0,
+        indent: match[1].replaceAll("\t", "        ").length,
+        class_name: className,
+        children: [],
+      }
+
+      if (node.name === poolName) {
+        root = node
+        stack.splice(0, stack.length, node)
+        continue
+      }
+
+      while (
+        stack.length > 0 &&
+        stack[stack.length - 1].indent >= node.indent
+      ) {
+        stack.pop()
+      }
+      const parent = stack.at(-1)
+      if (parent) {
+        parent.children.push(node)
+      } else if (root) {
+        root.children.push(node)
+      }
+      stack.push(node)
+    }
+
+    return {
+      pool_name: poolName,
+      vdevs: (root?.children ?? []).map((node) => ({
+        name: node.name,
+        state: node.state,
+        read_errors: node.read_errors,
+        write_errors: node.write_errors,
+        checksum_errors: node.checksum_errors,
+        type: vdevType(node.name, node.class_name),
+        class_name: node.class_name,
+        disks: leafDisks(node),
+      })),
+    }
+  })
 }
 
 export function nestDatasets(datasets: DatasetStatus[]) {
@@ -398,6 +647,47 @@ export function attachDatasetsToPools(
   }))
 }
 
+export function attachPoolDetails(
+  pools: PoolStatus[],
+  snapshots: SnapshotStatus[],
+  topologies: PoolTopology[]
+) {
+  const snapshotsByDataset = new Map<string, SnapshotStatus[]>()
+  for (const snapshot of snapshots) {
+    const datasetSnapshots = snapshotsByDataset.get(snapshot.dataset_path) ?? []
+    datasetSnapshots.push(snapshot)
+    snapshotsByDataset.set(snapshot.dataset_path, datasetSnapshots)
+  }
+
+  const attachSnapshots = (dataset: DatasetStatus): DatasetStatus => ({
+    ...dataset,
+    snapshots: (snapshotsByDataset.get(dataset.path) ?? []).sort((a, b) =>
+      (b.created_at ?? "").localeCompare(a.created_at ?? "")
+    ),
+    children: dataset.children.map(attachSnapshots),
+  })
+  const topologyByPool = new Map(
+    topologies.map((topology) => [topology.pool_name, topology.vdevs])
+  )
+
+  return pools.map((pool) => {
+    const datasets = pool.datasets.map(attachSnapshots)
+    const snapshotUsedBytes = datasets.reduce((poolTotal, dataset) => {
+      const visit = (item: DatasetStatus): number =>
+        item.snapshot_used_bytes +
+        item.children.reduce((total, child) => total + visit(child), 0)
+      return poolTotal + visit(dataset)
+    }, 0)
+
+    return {
+      ...pool,
+      datasets,
+      snapshot_used_bytes: snapshotUsedBytes,
+      vdevs: topologyByPool.get(pool.name) ?? [],
+    }
+  })
+}
+
 export function collectIssues(
   overall: StatusPayload["overall"],
   pools: PoolStatus[],
@@ -442,11 +732,39 @@ export function collectIssues(
   for (const pool of pools) {
     if (pool.health.toUpperCase() !== "ONLINE") {
       issues.push({
-        severity: "error",
+        severity: pool.health.toUpperCase() === "DEGRADED" ? "warn" : "error",
         scope: "pool",
         name: pool.name,
         message: `Pool health is ${pool.health}`,
       })
+    }
+    for (const vdev of pool.vdevs) {
+      if (vdev.state.toUpperCase() !== "ONLINE") {
+        issues.push({
+          severity: vdev.state.toUpperCase() === "DEGRADED" ? "warn" : "error",
+          scope: "vdev",
+          name: `${pool.name}/${vdev.name}`,
+          message: `${vdev.type} vdev is ${vdev.state}`,
+        })
+      }
+      for (const disk of vdev.disks) {
+        const errorCount =
+          disk.read_errors + disk.write_errors + disk.checksum_errors
+        if (disk.state.toUpperCase() !== "ONLINE" || errorCount > 0) {
+          issues.push({
+            severity:
+              disk.state.toUpperCase() === "DEGRADED" && errorCount === 0
+                ? "warn"
+                : "error",
+            scope: "disk",
+            name: disk.name,
+            message:
+              errorCount > 0
+                ? `${errorCount} read, write, or checksum errors reported`
+                : `Disk is ${disk.state}`,
+          })
+        }
+      }
     }
     for (const dataset of pool.datasets) {
       visitDataset(dataset)
@@ -461,9 +779,10 @@ export async function getStatus(): Promise<StatusPayload> {
     COMMANDS.map(([title, command]) => runCommand(title, command))
   )
   const overall = classifyOverall(commands)
-  const pools = attachDatasetsToPools(
-    parsePools(commands),
-    parseDatasets(commands)
+  const pools = attachPoolDetails(
+    attachDatasetsToPools(parsePools(commands), parseDatasets(commands)),
+    parseSnapshots(commands),
+    parseVdevs(commands)
   )
 
   return {

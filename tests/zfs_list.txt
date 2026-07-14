@@ -1,4 +1,3 @@
-NAME                USED  AVAIL  REFER  MOUNTPOINT
-storage01          7.72T   320G  7.52T  /storage01
-storage01/backup    178G   320G   178G  /storage01/backup
-storage01/storage  21.6G   320G  21.6G  /storage01/storage
+storage01	8488229766431	343597383680	8268327440876	/storage01	2576980378
+storage01/backup	191126044672	343597383680	191126044672	/storage01/backup	13421772800
+storage01/storage	23192823398	343597383680	23192823398	/storage01/storage	671088640

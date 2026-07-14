@@ -4,6 +4,7 @@ import {
   DatabaseIcon,
   GaugeIcon,
   HardDriveIcon,
+  SquareTerminalIcon,
 } from "lucide-react"
 
 import {
@@ -140,6 +141,23 @@ export function AppSidebar({
                   </SidebarMenuItem>
                 </Collapsible>
               ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Raw</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Raw command output"
+                  isActive={selection.kind === "raw"}
+                  onClick={() => onNavigate({ kind: "raw" })}
+                >
+                  <SquareTerminalIcon />
+                  <span>Command output</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

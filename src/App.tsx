@@ -3,15 +3,18 @@ import {
   AlertCircleIcon,
   CheckCircle2Icon,
   ClockIcon,
+  HardDriveIcon,
   TerminalIcon,
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { PanelHelp } from "@/components/panel-help"
 import { UsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -39,8 +42,10 @@ import {
   stateLabel,
   type CommandResult,
   type DatasetStatus,
+  type DiskStatus,
   type PoolStatus,
   type Selection,
+  type SnapshotStatus,
   type State,
   type StatusPayload,
 } from "@/lib/status"
@@ -60,7 +65,95 @@ function statusVariant(
 }
 
 function poolState(pool: PoolStatus): State {
-  return pool.health.toUpperCase() === "ONLINE" ? "ok" : "error"
+  if (pool.health.toUpperCase() === "ONLINE") {
+    return "ok"
+  }
+  return pool.health.toUpperCase() === "DEGRADED" ? "warn" : "error"
+}
+
+function deviceState(device: DiskStatus): State {
+  const hasErrors =
+    device.read_errors + device.write_errors + device.checksum_errors > 0
+  if (device.state.toUpperCase() === "ONLINE" && !hasErrors) {
+    return "ok"
+  }
+  if (device.state.toUpperCase() === "DEGRADED" && !hasErrors) {
+    return "warn"
+  }
+  return "error"
+}
+
+function formatSnapshotDate(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "Unknown"
+}
+
+function SnapshotsPanel({
+  snapshots,
+  snapshotUsedBytes,
+  showDataset = false,
+}: {
+  snapshots: SnapshotStatus[]
+  snapshotUsedBytes: number
+  showDataset?: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Snapshots</CardTitle>
+        <CardDescription>
+          {snapshots.length} snapshot{snapshots.length === 1 ? "" : "s"} ·{" "}
+          {formatBytes(snapshotUsedBytes)} held in total
+        </CardDescription>
+        <CardAction>
+          <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots; zfs list -H -p -t snapshot -o name,used,refer,creation">
+            Total snapshot space is the dataset&apos;s usedbysnapshots value:
+            the space freed if all its snapshots were destroyed. Each row&apos;s
+            used value is space unique to that snapshot, so row values do not
+            necessarily add up to the total. Referenced is the data accessible
+            through the snapshot.
+          </PanelHelp>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {snapshots.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No snapshots found</EmptyTitle>
+              <EmptyDescription>
+                OpenZFS reported no snapshots for this selection.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {snapshots.map((snapshot, index) => (
+              <React.Fragment key={snapshot.path}>
+                {index > 0 && <Separator />}
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">
+                      {showDataset ? snapshot.path : snapshot.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatSnapshotDate(snapshot.created_at)}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-end sm:gap-0">
+                    <span className="text-muted-foreground">Unique</span>
+                    <strong>{formatBytes(snapshot.used_bytes)}</strong>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-end sm:gap-0">
+                    <span className="text-muted-foreground">Referenced</span>
+                    <strong>{formatBytes(snapshot.refer_bytes)}</strong>
+                  </div>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 function DiagnosticOutput({ command }: { command: CommandResult }) {
@@ -75,11 +168,9 @@ function DiagnosticOutput({ command }: { command: CommandResult }) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <CardTitle>{command.title}</CardTitle>
-            <CardDescription>{`$ ${command.command.join(" ")}`}</CardDescription>
-          </div>
+        <CardTitle>{command.title}</CardTitle>
+        <CardDescription>{`$ ${command.command.join(" ")}`}</CardDescription>
+        <CardAction className="flex items-center gap-1">
           <Badge
             variant={
               command.returncode === 0 && !command.error
@@ -91,7 +182,12 @@ function DiagnosticOutput({ command }: { command: CommandResult }) {
               ? "not run"
               : `exit ${command.returncode}`}
           </Badge>
-        </div>
+          <PanelHelp source={command.command.join(" ")}>
+            The unmodified standard output and error output from this fixed,
+            read-only OpenZFS command. It is shown as text and is not
+            interpreted on this page.
+          </PanelHelp>
+        </CardAction>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-56 rounded-md border">
@@ -104,18 +200,39 @@ function DiagnosticOutput({ command }: { command: CommandResult }) {
   )
 }
 
+function RawView({ commands }: { commands: CommandResult[] }) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {commands.map((command) => (
+        <DiagnosticOutput key={command.title} command={command} />
+      ))}
+    </div>
+  )
+}
+
 function Overview({ status }: { status: StatusPayload }) {
-  const datasetCount = status.pools.flatMap((pool) =>
+  const datasets = status.pools.flatMap((pool) =>
     flattenDatasets(pool.datasets)
-  ).length
+  )
+  const snapshotCount = datasets.reduce(
+    (total, dataset) => total + dataset.snapshots.length,
+    0
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle>Health</CardTitle>
             <CardDescription>{status.overall.message}</CardDescription>
+            <CardAction>
+              <PanelHelp source="zpool status -x">
+                OpenZFS&apos;s concise pool-health summary. Healthy means every
+                imported pool reports no known health problem; warnings and
+                command failures appear in Issues.
+              </PanelHelp>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <Badge variant={statusVariant(status.overall.state)}>
@@ -127,6 +244,12 @@ function Overview({ status }: { status: StatusPayload }) {
           <CardHeader>
             <CardTitle>Pools</CardTitle>
             <CardDescription>Detected ZFS pools</CardDescription>
+            <CardAction>
+              <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
+                The number of imported storage pools returned by OpenZFS. A pool
+                combines one or more top-level virtual devices into storage.
+              </PanelHelp>
+            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {status.pools.length}
@@ -136,9 +259,39 @@ function Overview({ status }: { status: StatusPayload }) {
           <CardHeader>
             <CardTitle>Datasets</CardTitle>
             <CardDescription>Listed ZFS datasets</CardDescription>
+            <CardAction>
+              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
+                The number of filesystems and volumes returned by OpenZFS,
+                including nested datasets. Snapshots are counted separately.
+              </PanelHelp>
+            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
-            {datasetCount}
+            {datasets.length}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Snapshots</CardTitle>
+            <CardDescription>
+              {formatBytes(
+                status.pools.reduce(
+                  (total, pool) => total + pool.snapshot_used_bytes,
+                  0
+                )
+              )}{" "}
+              held
+            </CardDescription>
+            <CardAction>
+              <PanelHelp source="zfs list -H -p -t snapshot -o name,used,refer,creation">
+                Point-in-time, read-only versions of datasets. The count comes
+                from the snapshot list; held space uses each dataset&apos;s
+                usedbysnapshots value to avoid double-counting shared blocks.
+              </PanelHelp>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="text-3xl font-semibold tabular-nums">
+            {snapshotCount}
           </CardContent>
         </Card>
       </div>
@@ -149,6 +302,13 @@ function Overview({ status }: { status: StatusPayload }) {
           <CardDescription>
             Warnings and errors across commands, pools, and datasets
           </CardDescription>
+          <CardAction>
+            <PanelHelp source="All fixed status commands plus nazboard usage thresholds">
+              Command failures, non-ONLINE pools, vdevs or disks, device error
+              counters, and datasets at or above 75% usage. Usage reaches error
+              severity at 85%.
+            </PanelHelp>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {status.issues.length === 0 ? (
@@ -176,108 +336,233 @@ function Overview({ status }: { status: StatusPayload }) {
           )}
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        {status.commands.map((command) => (
-          <DiagnosticOutput key={command.title} command={command} />
-        ))}
-      </div>
     </div>
   )
 }
 
 function PoolView({ pool }: { pool: PoolStatus }) {
+  const datasets = flattenDatasets(pool.datasets)
+  const snapshots = datasets.flatMap((dataset) => dataset.snapshots)
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle>{pool.name}</CardTitle>
-              <CardDescription>
-                {formatBytes(pool.size_bytes)} total pool size
-              </CardDescription>
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{pool.name}</CardTitle>
+            <CardDescription>
+              {formatBytes(pool.size_bytes)} total pool size
+            </CardDescription>
+            <CardAction className="flex items-center gap-1">
+              <Badge variant={statusVariant(poolState(pool))}>
+                {pool.health}
+              </Badge>
+              <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
+                Pool size, allocated space, free space, and health reported by
+                OpenZFS. The chart&apos;s percentage is allocated divided by
+                allocated plus free.
+              </PanelHelp>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <UsageDonut
+              usedBytes={pool.allocated_bytes}
+              availableBytes={pool.free_bytes}
+              percent={pool.used_percent}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Datasets</CardTitle>
+            <CardDescription>
+              {datasets.length} dataset{datasets.length === 1 ? "" : "s"}
+            </CardDescription>
+            <CardAction>
+              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
+                Filesystems and volumes in this pool. The percentage is each
+                dataset&apos;s used space divided by used plus available space;
+                available can also be constrained by quotas and reservations.
+              </PanelHelp>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3">
+              {datasets.map((dataset) => (
+                <div
+                  key={dataset.path}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <span className="truncate">{dataset.path}</span>
+                  <Badge variant={statusVariant(dataset.state)}>
+                    {dataset.used_percent.toFixed(0)}%
+                  </Badge>
+                </div>
+              ))}
             </div>
-            <Badge variant={statusVariant(poolState(pool))}>
-              {pool.health}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <UsageDonut
-            usedBytes={pool.allocated_bytes}
-            availableBytes={pool.free_bytes}
-            percent={pool.used_percent}
-          />
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>Datasets</CardTitle>
-          <CardDescription>{pool.datasets.length} root dataset</CardDescription>
+          <CardTitle>Virtual devices</CardTitle>
+          <CardDescription>
+            {pool.vdevs.length} top-level vdev
+            {pool.vdevs.length === 1 ? "" : "s"} and their leaf disks
+          </CardDescription>
+          <CardAction>
+            <PanelHelp source="zpool status">
+              A top-level vdev is a direct child of the pool root and may be a
+              mirror, RAIDZ group, or single disk. Leaf disks are its physical
+              endpoints. State and READ, WRITE, and CKSUM error counters come
+              directly from the OpenZFS status table.
+            </PanelHelp>
+          </CardAction>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-3">
-            {flattenDatasets(pool.datasets).map((dataset) => (
-              <div
-                key={dataset.path}
-                className="flex items-center justify-between gap-3"
-              >
-                <span className="truncate">{dataset.path}</span>
-                <Badge variant={statusVariant(dataset.state)}>
-                  {dataset.used_percent.toFixed(0)}%
-                </Badge>
-              </div>
-            ))}
-          </div>
+          {pool.vdevs.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>No vdev topology available</EmptyTitle>
+                <EmptyDescription>
+                  The zpool status output did not contain a device table.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {pool.vdevs.map((vdev) => (
+                <div
+                  key={`${vdev.class_name}-${vdev.name}`}
+                  className="flex flex-col gap-3 rounded-md border p-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <HardDriveIcon />
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{vdev.name}</div>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <span>{vdev.type}</span>
+                          <span>·</span>
+                          <span>{vdev.class_name} class</span>
+                        </div>
+                      </div>
+                    </div>
+                    <Badge variant={statusVariant(deviceState(vdev))}>
+                      {vdev.state}
+                    </Badge>
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_repeat(3,2.5rem)] gap-2 text-[0.625rem] text-muted-foreground">
+                    <span>Disk</span>
+                    <span>Status</span>
+                    <span className="text-right">Read</span>
+                    <span className="text-right">Write</span>
+                    <span className="text-right">Cksum</span>
+                  </div>
+                  {vdev.disks.map((disk, diskIndex) => (
+                    <div
+                      key={`${disk.name}-${diskIndex}`}
+                      className="grid grid-cols-[minmax(0,1fr)_auto_repeat(3,2.5rem)] items-center gap-2"
+                    >
+                      <span className="truncate" title={disk.name}>
+                        {disk.name}
+                      </span>
+                      <Badge variant={statusVariant(deviceState(disk))}>
+                        {disk.state}
+                      </Badge>
+                      <span className="text-right tabular-nums">
+                        {disk.read_errors}
+                      </span>
+                      <span className="text-right tabular-nums">
+                        {disk.write_errors}
+                      </span>
+                      <span className="text-right tabular-nums">
+                        {disk.checksum_errors}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <SnapshotsPanel
+        snapshots={snapshots}
+        snapshotUsedBytes={pool.snapshot_used_bytes}
+        showDataset
+      />
     </div>
   )
 }
 
 function DatasetView({ dataset }: { dataset: DatasetStatus }) {
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle>{dataset.path}</CardTitle>
-              <CardDescription>{dataset.mountpoint}</CardDescription>
+    <div className="flex flex-col gap-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{dataset.path}</CardTitle>
+            <CardDescription>{dataset.mountpoint}</CardDescription>
+            <CardAction className="flex items-center gap-1">
+              <Badge variant={statusVariant(dataset.state)}>
+                {stateLabel(dataset.state)}
+              </Badge>
+              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
+                Used is space consumed by this dataset and descendants.
+                Available is the space it can use after pool limits, quotas, and
+                reservations. The percentage is used divided by used plus
+                available.
+              </PanelHelp>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <UsageDonut
+              usedBytes={dataset.used_bytes}
+              availableBytes={dataset.available_bytes}
+              percent={dataset.used_percent}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Figures</CardTitle>
+            <CardDescription>Reported by zfs list</CardDescription>
+            <CardAction>
+              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
+                Referenced is data accessible directly through this dataset and
+                may share blocks with snapshots or clones. Snapshot space is
+                what would be freed by destroying all snapshots of this dataset.
+              </PanelHelp>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Referenced</span>
+                <strong>{formatBytes(dataset.refer_bytes)}</strong>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Snapshots</span>
+                <strong>{formatBytes(dataset.snapshot_used_bytes)}</strong>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Children</span>
+                <strong>{dataset.children.length}</strong>
+              </div>
             </div>
-            <Badge variant={statusVariant(dataset.state)}>
-              {stateLabel(dataset.state)}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <UsageDonut
-            usedBytes={dataset.used_bytes}
-            availableBytes={dataset.available_bytes}
-            percent={dataset.used_percent}
-          />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Figures</CardTitle>
-          <CardDescription>Reported by zfs list</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Referenced</span>
-              <strong>{formatBytes(dataset.refer_bytes)}</strong>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Children</span>
-              <strong>{dataset.children.length}</strong>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
+      <SnapshotsPanel
+        snapshots={dataset.snapshots}
+        snapshotUsedBytes={dataset.snapshot_used_bytes}
+      />
     </div>
   )
 }
@@ -328,9 +613,11 @@ export function App() {
   const title =
     selection.kind === "overview"
       ? "Overview"
-      : selection.kind === "pool"
-        ? selection.id
-        : selection.id
+      : selection.kind === "raw"
+        ? "Raw command output"
+        : selection.kind === "pool"
+          ? selection.id
+          : selection.id
 
   const selectedPool =
     selection.kind === "pool" && status
@@ -386,6 +673,8 @@ export function App() {
             <LoadingView />
           ) : selection.kind === "overview" ? (
             <Overview status={status} />
+          ) : selection.kind === "raw" ? (
+            <RawView commands={status.commands} />
           ) : selectedPool ? (
             <PoolView pool={selectedPool} />
           ) : selectedDataset ? (

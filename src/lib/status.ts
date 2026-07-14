@@ -2,7 +2,7 @@ export type State = "ok" | "warn" | "error"
 
 export type Issue = {
   severity: State
-  scope: "overall" | "pool" | "dataset" | "command"
+  scope: "overall" | "pool" | "vdev" | "disk" | "dataset" | "command"
   name: string
   message: string
 }
@@ -22,10 +22,35 @@ export type DatasetStatus = {
   used_bytes: number
   available_bytes: number
   refer_bytes: number | null
+  snapshot_used_bytes: number
   mountpoint: string
   used_percent: number
   state: State
+  snapshots: SnapshotStatus[]
   children: DatasetStatus[]
+}
+
+export type SnapshotStatus = {
+  name: string
+  path: string
+  dataset_path: string
+  used_bytes: number
+  refer_bytes: number | null
+  created_at: string | null
+}
+
+export type DiskStatus = {
+  name: string
+  state: string
+  read_errors: number
+  write_errors: number
+  checksum_errors: number
+}
+
+export type VdevStatus = DiskStatus & {
+  type: string
+  class_name: string
+  disks: DiskStatus[]
 }
 
 export type PoolStatus = {
@@ -35,6 +60,8 @@ export type PoolStatus = {
   free_bytes: number
   health: string
   used_percent: number
+  snapshot_used_bytes: number
+  vdevs: VdevStatus[]
   datasets: DatasetStatus[]
 }
 
@@ -51,6 +78,7 @@ export type StatusPayload = {
 
 export type Selection =
   | { kind: "overview" }
+  | { kind: "raw" }
   | { kind: "pool"; id: string }
   | { kind: "dataset"; id: string }
 
