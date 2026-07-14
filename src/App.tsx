@@ -572,10 +572,7 @@ function DatasetView({
               {formatBytes(pool.size_bytes)} total pool size ·{" "}
               {dataset.mountpoint}
             </CardDescription>
-            <CardAction className="flex items-center gap-1">
-              <Badge variant={statusVariant(dataset.state)}>
-                {stateLabel(dataset.state)}
-              </Badge>
+            <CardAction>
               <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
                 The chart scales this dataset&apos;s used space against the
                 total pool size. When it has children, their complete subtree
