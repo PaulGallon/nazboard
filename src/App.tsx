@@ -85,13 +85,6 @@ function statusVariant(
   return "secondary"
 }
 
-function poolState(pool: PoolStatus): State {
-  if (pool.health.toUpperCase() === "ONLINE") {
-    return "ok"
-  }
-  return pool.health.toUpperCase() === "DEGRADED" ? "warn" : "error"
-}
-
 function deviceState(device: DiskStatus): State {
   const hasErrors =
     device.read_errors + device.write_errors + device.checksum_errors > 0
@@ -454,10 +447,7 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
             <CardDescription>
               {formatBytes(pool.size_bytes)} total pool size
             </CardDescription>
-            <CardAction className="flex items-center gap-1">
-              <Badge variant={statusVariant(poolState(pool))}>
-                {pool.health}
-              </Badge>
+            <CardAction>
               <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
                 Pool size, allocated space, free space, and health reported by
                 OpenZFS. The chart&apos;s percentage is allocated divided by
