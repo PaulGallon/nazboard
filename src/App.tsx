@@ -9,7 +9,7 @@ import {
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { PanelHelp } from "@/components/panel-help"
-import { UsageDonut } from "@/components/usage-donut"
+import { DatasetUsageDonut, UsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -103,9 +103,13 @@ function propertyValue(properties: DatasetProperty[], propertyName: string) {
   )
 }
 
-function displayPropertyValue(value: string) {
+function displayPropertyValue(value: string, propertyName?: string) {
   if (value === "" || value === "-") {
     return "-"
+  }
+
+  if (propertyName === "sharenfs") {
+    return value.replaceAll(",", ",\n")
   }
 
   const parsed = Number.parseInt(value, 10)
@@ -528,7 +532,13 @@ function PoolView({ pool }: { pool: PoolStatus }) {
   )
 }
 
-function DatasetView({ dataset }: { dataset: DatasetStatus }) {
+function DatasetView({
+  dataset,
+  pool,
+}: {
+  dataset: DatasetStatus
+  pool: PoolStatus
+}) {
   const highlightedProperties = [
     ["Compression ratio", propertyValue(dataset.properties, "compressratio")],
     ["Compression", propertyValue(dataset.properties, "compression")],
@@ -558,24 +568,26 @@ function DatasetView({ dataset }: { dataset: DatasetStatus }) {
         <Card>
           <CardHeader>
             <CardTitle>{dataset.path}</CardTitle>
-            <CardDescription>{dataset.mountpoint}</CardDescription>
+            <CardDescription>
+              {formatBytes(pool.size_bytes)} total pool size ·{" "}
+              {dataset.mountpoint}
+            </CardDescription>
             <CardAction className="flex items-center gap-1">
               <Badge variant={statusVariant(dataset.state)}>
                 {stateLabel(dataset.state)}
               </Badge>
               <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
-                Used is space consumed by this dataset and descendants.
-                Available is the space it can use after pool limits, quotas, and
-                reservations. The percentage is used divided by used plus
-                available.
+                The chart scales this dataset&apos;s used space against the
+                total pool size. When it has children, their complete subtree
+                usage is shown separately and the remaining used space belongs
+                to this dataset itself. The muted track is the rest of the pool.
               </PanelHelp>
             </CardAction>
           </CardHeader>
           <CardContent>
-            <UsageDonut
-              usedBytes={dataset.used_bytes}
-              availableBytes={dataset.available_bytes}
-              percent={dataset.used_percent}
+            <DatasetUsageDonut
+              dataset={dataset}
+              poolSizeBytes={pool.size_bytes}
             />
           </CardContent>
         </Card>
@@ -658,8 +670,11 @@ function DatasetView({ dataset }: { dataset: DatasetStatus }) {
                       <TableCell className="font-medium">
                         {property.property}
                       </TableCell>
-                      <TableCell>
-                        {displayPropertyValue(property.value)}
+                      <TableCell className="break-words whitespace-pre-wrap">
+                        {displayPropertyValue(
+                          property.value,
+                          property.property
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{property.source}</Badge>
@@ -736,6 +751,14 @@ export function App() {
     selection.kind === "dataset" && status
       ? findDataset(status, selection.id)
       : null
+  const selectedDatasetPool =
+    selectedDataset && status
+      ? status.pools.find((pool) =>
+          flattenDatasets(pool.datasets).some(
+            (dataset) => dataset.path === selectedDataset.path
+          )
+        )
+      : null
 
   return (
     <SidebarProvider>
@@ -786,8 +809,8 @@ export function App() {
             <RawView commands={status.commands} />
           ) : selectedPool ? (
             <PoolView pool={selectedPool} />
-          ) : selectedDataset ? (
-            <DatasetView dataset={selectedDataset} />
+          ) : selectedDataset && selectedDatasetPool ? (
+            <DatasetView dataset={selectedDataset} pool={selectedDatasetPool} />
           ) : (
             <Alert>
               <CheckCircle2Icon />
