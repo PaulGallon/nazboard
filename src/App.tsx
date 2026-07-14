@@ -816,7 +816,7 @@ function DatasetView({
                       {[null, ...sources].map((source) => (
                         <DropdownMenuItem
                           key={source ?? "all"}
-                          onSelect={() => setSourceFilter(source)}
+                          onClick={() => setSourceFilter(source)}
                         >
                           {source ?? "All"}
                           {sourceFilter === source && (
