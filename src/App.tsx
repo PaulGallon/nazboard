@@ -1,6 +1,8 @@
 import * as React from "react"
 import {
   AlertCircleIcon,
+  CheckIcon,
+  ChevronDownIcon,
   CheckCircle2Icon,
   ClockIcon,
   HardDriveIcon,
@@ -12,6 +14,7 @@ import { PanelHelp } from "@/components/panel-help"
 import { DatasetUsageDonut, UsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardAction,
@@ -20,6 +23,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Empty,
   EmptyDescription,
@@ -104,6 +115,28 @@ function propertyValue(properties: DatasetProperty[], propertyName: string) {
   )
 }
 
+function sharingState(properties: DatasetProperty[]) {
+  const isEnabled = (propertyName: string) => {
+    const value = propertyValue(properties, propertyName).toLowerCase()
+    return value !== "off" && value !== "-" && value !== "none"
+  }
+  const nfs = isEnabled("sharenfs")
+  const smb = isEnabled("sharesmb")
+
+  if (nfs && smb) {
+    return "NFS+SMB"
+  }
+  if (nfs) {
+    return "NFS"
+  }
+  return smb ? "SMB" : "Off"
+}
+
+function encryptionState(properties: DatasetProperty[]) {
+  const value = propertyValue(properties, "encryption").toLowerCase()
+  return value !== "off" && value !== "-" && value !== "none" ? "On" : "Off"
+}
+
 function displayPropertyValue(value: string, propertyName?: string) {
   if (value === "" || value === "-") {
     return "-"
@@ -111,6 +144,10 @@ function displayPropertyValue(value: string, propertyName?: string) {
 
   if (propertyName === "sharenfs") {
     return value.replaceAll(",", ",\n")
+  }
+
+  if (propertyName?.toLowerCase().endsWith("id")) {
+    return value
   }
 
   const parsed = Number.parseInt(value, 10)
@@ -645,14 +682,18 @@ function DatasetView({
   dataset: DatasetStatus
   pool: PoolStatus
 }) {
+  const [sourceFilter, setSourceFilter] = React.useState<string | null>(null)
+  const sources = Array.from(
+    new Set(dataset.properties.map((property) => property.source))
+  ).sort((a, b) => a.localeCompare(b))
+  const filteredProperties = sourceFilter
+    ? dataset.properties.filter((property) => property.source === sourceFilter)
+    : dataset.properties
   const highlightedProperties = [
     ["Compression ratio", propertyValue(dataset.properties, "compressratio")],
     ["Compression", propertyValue(dataset.properties, "compression")],
-    ["Quota", propertyValue(dataset.properties, "quota")],
-    [
-      "Record size",
-      displayPropertyValue(propertyValue(dataset.properties, "recordsize")),
-    ],
+    ["Sharing", sharingState(dataset.properties)],
+    ["Encryption", encryptionState(dataset.properties)],
   ]
 
   return (
@@ -737,9 +778,7 @@ function DatasetView({
             {dataset.properties.length} values from zfs get all
           </CardDescription>
           <CardAction>
-            <PanelHelp
-              source={`zfs get -H -p -o name,property,value,source all ${dataset.path}`}
-            >
+            <PanelHelp source="zfs get -H -p -t filesystem,volume,snapshot -o name,property,value,source all">
               Dataset properties reported by OpenZFS. Values are shown as text
               from the command output; byte-sized numeric values are formatted
               for readability in this table.
@@ -758,35 +797,67 @@ function DatasetView({
               </EmptyHeader>
             </Empty>
           ) : (
-            <ScrollArea className="h-96 rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Property</TableHead>
-                    <TableHead>Value</TableHead>
-                    <TableHead>Source</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dataset.properties.map((property) => (
-                    <TableRow key={property.property}>
-                      <TableCell className="font-medium">
-                        {property.property}
-                      </TableCell>
-                      <TableCell className="break-words whitespace-pre-wrap">
-                        {displayPropertyValue(
-                          property.value,
-                          property.property
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{property.source}</Badge>
-                      </TableCell>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {filteredProperties.length} of {dataset.properties.length}{" "}
+                  values
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={<Button variant="outline" size="sm" />}
+                  >
+                    Source: {sourceFilter ?? "All"}
+                    <ChevronDownIcon data-icon="inline-end" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>Filter by source</DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      {[null, ...sources].map((source) => (
+                        <DropdownMenuItem
+                          key={source ?? "all"}
+                          onSelect={() => setSourceFilter(source)}
+                        >
+                          {source ?? "All"}
+                          {sourceFilter === source && (
+                            <CheckIcon className="ml-auto" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <ScrollArea className="h-96 rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Property</TableHead>
+                      <TableHead>Value</TableHead>
+                      <TableHead>Source</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProperties.map((property) => (
+                      <TableRow key={property.property}>
+                        <TableCell className="font-medium">
+                          {property.property}
+                        </TableCell>
+                        <TableCell className="break-words whitespace-pre-wrap">
+                          {displayPropertyValue(
+                            property.value,
+                            property.property
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{property.source}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -913,7 +984,11 @@ export function App() {
           ) : selectedPool ? (
             <PoolView pool={selectedPool} issues={status.issues} />
           ) : selectedDataset && selectedDatasetPool ? (
-            <DatasetView dataset={selectedDataset} pool={selectedDatasetPool} />
+            <DatasetView
+              key={selectedDataset.path}
+              dataset={selectedDataset}
+              pool={selectedDatasetPool}
+            />
           ) : (
             <Alert>
               <CheckCircle2Icon />
