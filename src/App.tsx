@@ -288,7 +288,7 @@ function IssuesCard({
   includeCommands = false,
 }: {
   issues: Issue[]
-  description: string
+  description?: string
   emptyDescription: string
   includeCommands?: boolean
 }) {
@@ -296,7 +296,7 @@ function IssuesCard({
     <Card>
       <CardHeader>
         <CardTitle>Issues</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        {description && <CardDescription>{description}</CardDescription>}
         <CardAction>
           <PanelHelp source="All fixed status commands plus nazboard usage thresholds">
             {includeCommands
@@ -445,7 +445,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
       </div>
       <IssuesCard
         issues={poolIssues}
-        description={`Warnings and errors for ${pool.name} and its storage`}
         emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
