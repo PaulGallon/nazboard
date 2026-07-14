@@ -359,10 +359,8 @@ function Overview({ status }: { status: StatusPayload }) {
               </PanelHelp>
             </CardAction>
           </CardHeader>
-          <CardContent>
-            <Badge variant={statusVariant(status.overall.state)}>
-              {stateLabel(status.overall.state)}
-            </Badge>
+          <CardContent className="text-3xl font-semibold tabular-nums">
+            {stateLabel(status.overall.state)}
           </CardContent>
         </Card>
         <Card>
@@ -461,10 +459,8 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
               </PanelHelp>
             </CardAction>
           </CardHeader>
-          <CardContent>
-            <Badge variant={statusVariant(poolState(pool))}>
-              {pool.health}
-            </Badge>
+          <CardContent className="text-3xl font-semibold tabular-nums">
+            {pool.health}
           </CardContent>
         </Card>
         <Card>
