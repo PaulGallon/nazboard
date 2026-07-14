@@ -1,6 +1,16 @@
 import assert from "node:assert/strict"
+import { execFile } from "node:child_process"
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { describe, it } from "node:test"
 import { join } from "node:path"
+import { promisify } from "node:util"
 
 import {
   FIXTURE_DIR_ENV,
@@ -19,6 +29,26 @@ import {
 
 const root = process.cwd()
 const fixtureDir = join(root, "tests")
+const execFileAsync = promisify(execFile)
+const generator = join(root, "scripts", "generate-test-data.mjs")
+const temporaryRoot = join(root, "build")
+
+async function fakeZfsCommands(directory: string, zfsExitCode = 0) {
+  const binDirectory = join(directory, "bin")
+  await mkdir(binDirectory)
+  await Promise.all([
+    writeFile(join(binDirectory, "zpool"), '#!/bin/sh\nprintf "%s\\n" "$*"\n'),
+    writeFile(
+      join(binDirectory, "zfs"),
+      `#!/bin/sh\nprintf "%s\\n" "$*"\nexit ${zfsExitCode}\n`
+    ),
+  ])
+  await Promise.all([
+    chmod(join(binDirectory, "zpool"), 0o755),
+    chmod(join(binDirectory, "zfs"), 0o755),
+  ])
+  return binDirectory
+}
 
 function commandResult(title: string, stdout: string): CommandResult {
   return {
@@ -41,6 +71,72 @@ describe("fixture mode", () => {
 
     assert.equal(result.returncode, 0)
     assert.match(result.stdout, /all pools are healthy/)
+  })
+})
+
+describe("test data generator", () => {
+  it("captures the server's fixed ZFS commands in their fixture files", async (t) => {
+    const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
+    t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
+    const binDirectory = await fakeZfsCommands(temporaryDirectory)
+    const outputDirectory = join(temporaryDirectory, "fixtures")
+
+    await execFileAsync(
+      process.execPath,
+      [generator, "--output-dir", outputDirectory],
+      {
+        env: {
+          ...process.env,
+          PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+        },
+      }
+    )
+
+    const expected = new Map([
+      ["zpool_status_x.txt", "status -x\n"],
+      ["zpool_list.txt", "list -H -o name,size,alloc,free,health\n"],
+      ["zpool_status.txt", "status\n"],
+      [
+        "zfs_list.txt",
+        "list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots\n",
+      ],
+      [
+        "zfs_snapshots.txt",
+        "list -H -p -t snapshot -o name,used,refer,creation\n",
+      ],
+    ])
+
+    for (const [filename, contents] of expected) {
+      assert.equal(
+        await readFile(join(outputDirectory, filename), "utf8"),
+        contents
+      )
+    }
+  })
+
+  it("does not replace fixtures when a command fails", async (t) => {
+    const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
+    t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
+    const binDirectory = await fakeZfsCommands(temporaryDirectory, 1)
+    const outputDirectory = join(temporaryDirectory, "fixtures")
+    const existingFixture = join(outputDirectory, "zpool_status_x.txt")
+    await mkdir(outputDirectory)
+    await writeFile(existingFixture, "existing fixture\n")
+
+    await assert.rejects(
+      execFileAsync(
+        process.execPath,
+        [generator, "--output-dir", outputDirectory],
+        {
+          env: {
+            ...process.env,
+            PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+          },
+        }
+      )
+    )
+
+    assert.equal(await readFile(existingFixture, "utf8"), "existing fixture\n")
   })
 })
 
