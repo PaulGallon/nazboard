@@ -99,6 +99,25 @@ Run locally with the redacted example output in `tests/` instead of calling `zpo
 NAZBOARD_FIXTURE_DIR=tests npm start
 ```
 
+To refresh those fixtures on a machine with ZFS pools, datasets, and snapshots,
+run:
+
+```sh
+npm run generate:test-data
+```
+
+The generator runs the same five fixed, read-only `zpool` and `zfs` commands as
+the server and replaces the corresponding files in `tests/` only after every
+command succeeds. To capture the files elsewhere for review first, pass an
+output directory:
+
+```sh
+npm run generate:test-data -- --output-dir /tmp/nazboard-test-data
+```
+
+Review and redact host, pool, dataset, and device names before committing
+generated data from a real system.
+
 For frontend-only development, run:
 
 ```sh
