@@ -1,17 +1,11 @@
 import * as React from "react"
 import {
-  ChevronRightIcon,
   DatabaseIcon,
   GaugeIcon,
   HardDriveIcon,
   SquareTerminalIcon,
 } from "lucide-react"
 
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Sidebar,
   SidebarContent,
@@ -111,35 +105,23 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               {status?.pools.map((pool) => (
-                <Collapsible key={pool.name} defaultOpen>
-                  <SidebarMenuItem>
-                    <CollapsibleTrigger
-                      render={
-                        <SidebarMenuButton
-                          tooltip={pool.name}
-                          isActive={
-                            selection.kind === "pool" &&
-                            selection.id === pool.name
-                          }
-                          onClick={() =>
-                            onNavigate({ kind: "pool", id: pool.name })
-                          }
-                        />
-                      }
-                    >
-                      <HardDriveIcon />
-                      <span>{pool.name}</span>
-                      <ChevronRightIcon className="ml-auto transition-transform group-data-[panel-open]/collapsible:rotate-90" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <DatasetTree
-                        datasets={pool.datasets}
-                        selection={selection}
-                        onNavigate={onNavigate}
-                      />
-                    </CollapsibleContent>
-                  </SidebarMenuItem>
-                </Collapsible>
+                <SidebarMenuItem key={pool.name}>
+                  <SidebarMenuButton
+                    tooltip={pool.name}
+                    isActive={
+                      selection.kind === "pool" && selection.id === pool.name
+                    }
+                    onClick={() => onNavigate({ kind: "pool", id: pool.name })}
+                  >
+                    <HardDriveIcon />
+                    <span>{pool.name}</span>
+                  </SidebarMenuButton>
+                  <DatasetTree
+                    datasets={pool.datasets}
+                    selection={selection}
+                    onNavigate={onNavigate}
+                  />
+                </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
