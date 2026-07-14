@@ -803,16 +803,16 @@ function DatasetView({
                   {filteredProperties.length} of {dataset.properties.length}{" "}
                   values
                 </span>
-                <DropdownMenu>
+                <DropdownMenu modal={false}>
                   <DropdownMenuTrigger
                     render={<Button variant="outline" size="sm" />}
                   >
                     Source: {sourceFilter ?? "All"}
                     <ChevronDownIcon data-icon="inline-end" />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>Filter by source</DropdownMenuLabel>
+                  <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuGroup>
+                      <DropdownMenuLabel>Filter by source</DropdownMenuLabel>
                       {[null, ...sources].map((source) => (
                         <DropdownMenuItem
                           key={source ?? "all"}
