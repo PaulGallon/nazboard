@@ -38,8 +38,21 @@ Open <http://localhost:8080>. Health check endpoint: <http://localhost:8080/heal
 
 - `overall`: health state and message
 - `issues`: warnings and errors across commands, pools, and datasets
-- `pools`: pool space usage and nested dataset trees
+- `pools`: pool space usage, vdev/disk topology, nested dataset trees, and snapshots
 - `commands`: diagnostic output from the fixed ZFS commands
+
+Snapshot data comes from two read-only views: dataset `usedbysnapshots` totals
+and an exact, tab-separated snapshot list containing `name`, `used`, `refer`,
+and `creation`. The dashboard uses these fixed commands:
+
+```sh
+zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots
+zfs list -H -p -t snapshot -o name,used,refer,creation
+```
+
+OpenZFS defines a snapshot's `used` value as space unique to that snapshot.
+Because blocks may be shared by snapshots, the dashboard uses
+`usedbysnapshots` for the aggregate space that all snapshots of a dataset hold.
 
 ## Deployment beyond local Docker
 

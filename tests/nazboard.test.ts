@@ -10,6 +10,8 @@ import {
   nestDatasets,
   parseDatasets,
   parsePools,
+  parseSnapshots,
+  parseVdevs,
   parseZfsSize,
   readFixture,
   type CommandResult,
@@ -87,6 +89,47 @@ describe("ZFS parsing", () => {
     )
     assert.equal(tree[1].children[0].path, "tank/home")
     assert.equal(tree[1].children[0].children[0].path, "tank/home/photos")
+    assert.equal(tree[1].snapshot_used_bytes, 0)
+  })
+
+  it("parses snapshots and their exact creation time", () => {
+    const snapshots = parseSnapshots([
+      commandResult("zfs snapshots", "tank/home@daily\t1024\t4096\t1784019600"),
+    ])
+
+    assert.equal(snapshots.length, 1)
+    assert.equal(snapshots[0].dataset_path, "tank/home")
+    assert.equal(snapshots[0].name, "daily")
+    assert.equal(snapshots[0].used_bytes, 1024)
+    assert.equal(snapshots[0].created_at, "2026-07-14T09:00:00.000Z")
+  })
+
+  it("parses top-level vdevs, allocation classes, and leaf disks", () => {
+    const topologies = parseVdevs([
+      commandResult(
+        "zpool status",
+        [
+          "  pool: tank",
+          "config:",
+          "",
+          "  NAME        STATE     READ WRITE CKSUM",
+          "  tank        ONLINE       0     0     0",
+          "    mirror-0  ONLINE       0     0     0",
+          "      sda     ONLINE       0     0     0",
+          "      sdb     DEGRADED     1     0     0",
+          "  special",
+          "    nvme0n1   ONLINE       0     0     0",
+          "",
+          "errors: No known data errors",
+        ].join("\n")
+      ),
+    ])
+
+    assert.equal(topologies[0].vdevs.length, 2)
+    assert.equal(topologies[0].vdevs[0].type, "mirror")
+    assert.equal(topologies[0].vdevs[0].disks[1].state, "DEGRADED")
+    assert.equal(topologies[0].vdevs[1].class_name, "special")
+    assert.equal(topologies[0].vdevs[1].disks[0].name, "nvme0n1")
   })
 
   it("attaches dataset roots to their pools", () => {
@@ -126,7 +169,12 @@ describe("status payload", () => {
       assert.equal(status.pools[0].name, "storage01")
       assert.equal(status.pools[0].datasets[0].path, "storage01")
       assert.equal(status.pools[0].datasets[0].children.length, 2)
-      assert.equal(status.commands.length, 4)
+      assert.equal(status.pools[0].vdevs.length, 4)
+      assert.equal(status.pools[0].vdevs[0].disks.length, 2)
+      assert.equal(status.pools[0].datasets[0].snapshots.length, 1)
+      assert.equal(status.pools[0].datasets[0].children[0].snapshots.length, 2)
+      assert.equal(status.pools[0].snapshot_used_bytes, 16_669_841_818)
+      assert.equal(status.commands.length, 5)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {
