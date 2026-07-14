@@ -41,14 +41,19 @@ Open <http://localhost:8080>. Health check endpoint: <http://localhost:8080/heal
 - `pools`: pool space usage, vdev/disk topology, nested dataset trees, and snapshots
 - `commands`: diagnostic output from the fixed ZFS commands
 
-Snapshot data comes from two read-only views: dataset `usedbysnapshots` totals
-and an exact, tab-separated snapshot list containing `name`, `used`, `refer`,
-and `creation`. The dashboard uses these fixed commands:
+Snapshot data comes from dataset `usedbysnapshots` totals, an exact,
+tab-separated snapshot list containing `name`, `used`, `refer`, and `creation`,
+and the consolidated property output. The dashboard uses these fixed commands:
 
 ```sh
 zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots
 zfs list -H -p -t snapshot -o name,used,refer,creation
+zfs get -H -p -t filesystem,volume,snapshot -o name,property,value,source all
 ```
+
+The `zfs get` command omits dataset operands so OpenZFS returns every matching
+dataset and snapshot in one invocation. nazboard groups those rows by the
+`name` column before attaching properties to the corresponding objects.
 
 OpenZFS defines a snapshot's `used` value as space unique to that snapshot.
 Because blocks may be shared by snapshots, the dashboard uses
@@ -106,7 +111,7 @@ run the shell script directly (Node.js is not required):
 ./scripts/generate-test-data.sh
 ```
 
-The generator runs the same five fixed, read-only `zpool` and `zfs` commands as
+The generator runs the same six fixed, read-only `zpool` and `zfs` commands as
 the server and replaces the corresponding files in `tests/` only after every
 command succeeds. It replaces leaf device paths and serial-based names in both
 `zpool status` outputs with stable `disk-N` placeholders. To capture the files

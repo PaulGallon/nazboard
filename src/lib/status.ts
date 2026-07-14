@@ -44,6 +44,7 @@ export type SnapshotStatus = {
   used_bytes: number
   refer_bytes: number | null
   created_at: string | null
+  properties: DatasetProperty[]
 }
 
 export type DiskStatus = {

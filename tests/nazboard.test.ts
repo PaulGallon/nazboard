@@ -20,7 +20,7 @@ import {
   getStatus,
   nestDatasets,
   parseDatasets,
-  parseDatasetProperties,
+  parseZfsProperties,
   parsePools,
   parseSnapshots,
   parseVdevs,
@@ -104,8 +104,8 @@ describe("test data generator", () => {
         "list -H -p -t snapshot -o name,used,refer,creation\n",
       ],
       [
-        "zfs_get_all_list.txt",
-        "get -H -p -o name,property,value,source all list\n",
+        "zfs_get_all.txt",
+        "get -H -p -t filesystem,volume,snapshot -o name,property,value,source all\n",
       ],
     ])
 
@@ -249,13 +249,14 @@ describe("ZFS parsing", () => {
     assert.equal(snapshots[0].created_at, "2026-07-14T09:00:00.000Z")
   })
 
-  it("parses dataset properties", () => {
-    const properties = parseDatasetProperties([
+  it("groups dataset and snapshot properties by name", () => {
+    const properties = parseZfsProperties([
       commandResult(
-        "zfs get all tank/home",
+        "zfs get all",
         [
           "tank/home\tcompressratio\t1.23x\t-",
           "tank/home\tcompression\tlz4\tlocal",
+          "tank/home@daily\tcreation\t1784019600\t-",
         ].join("\n")
       ),
     ])
@@ -263,6 +264,9 @@ describe("ZFS parsing", () => {
     assert.deepEqual(properties.get("tank/home"), [
       { property: "compressratio", value: "1.23x", source: "-" },
       { property: "compression", value: "lz4", source: "local" },
+    ])
+    assert.deepEqual(properties.get("tank/home@daily"), [
+      { property: "creation", value: "1784019600", source: "-" },
     ])
   })
 
@@ -336,13 +340,19 @@ describe("status payload", () => {
       assert.equal(status.pools[0].datasets[0].snapshots.length, 0)
       assert.equal(status.pools[0].datasets[0].children[0].snapshots.length, 1)
       assert.equal(
+        status.pools[0].datasets[0].children[0].snapshots[0].properties.find(
+          (property) => property.property === "type"
+        )?.value,
+        "snapshot"
+      )
+      assert.equal(
         status.pools[0].datasets[0].properties.find(
           (property) => property.property === "compressratio"
         )?.value,
         "1.00"
       )
       assert.equal(status.pools[0].snapshot_used_bytes, 123_904)
-      assert.equal(status.commands.length, 8)
+      assert.equal(status.commands.length, 6)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {

@@ -63,6 +63,7 @@ export type SnapshotStatus = {
   used_bytes: number
   refer_bytes: number | null
   created_at: string | null
+  properties: DatasetProperty[]
 }
 
 export type DiskStatus = {
@@ -135,6 +136,20 @@ const BASE_COMMANDS: Array<[string, string[]]> = [
       "name,used,refer,creation",
     ],
   ],
+  [
+    "zfs get all",
+    [
+      "zfs",
+      "get",
+      "-H",
+      "-p",
+      "-t",
+      "filesystem,volume,snapshot",
+      "-o",
+      "name,property,value,source",
+      "all",
+    ],
+  ],
 ]
 
 const FIXTURE_FILES = new Map<string, string>([
@@ -167,6 +182,20 @@ const FIXTURE_FILES = new Map<string, string>([
       "name,used,refer,creation",
     ].join("\0"),
     "zfs_snapshots.txt",
+  ],
+  [
+    [
+      "zfs",
+      "get",
+      "-H",
+      "-p",
+      "-t",
+      "filesystem,volume,snapshot",
+      "-o",
+      "name,property,value,source",
+      "all",
+    ].join("\0"),
+    "zfs_get_all.txt",
   ],
 ])
 
@@ -212,25 +241,7 @@ function commandOk(result: CommandResult) {
 }
 
 function fixtureFilenameForCommand(command: string[]) {
-  const fixedFixture = FIXTURE_FILES.get(commandKey(command))
-  if (fixedFixture) {
-    return fixedFixture
-  }
-
-  const isZfsGetAll =
-    command[0] === "zfs" &&
-    command[1] === "get" &&
-    command[2] === "-H" &&
-    command[3] === "-p" &&
-    command[4] === "-o" &&
-    command[5] === "name,property,value,source" &&
-    command[6] === "all" &&
-    command.length === 8
-  if (!isZfsGetAll) {
-    return null
-  }
-
-  return `zfs_get_all_${command[7].replaceAll(/[^A-Za-z0-9._-]/g, "_")}.txt`
+  return FIXTURE_FILES.get(commandKey(command)) ?? null
 }
 
 export async function readFixture(
@@ -529,13 +540,13 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
     .filter((dataset): dataset is DatasetStatus => dataset !== null)
 }
 
-export function parseDatasetProperties(
+export function parseZfsProperties(
   results: CommandResult[]
 ): Map<string, DatasetProperty[]> {
   const propertiesByDataset = new Map<string, DatasetProperty[]>()
 
   for (const result of results) {
-    if (!result.title.startsWith("zfs get all ") || !commandOk(result)) {
+    if (result.title !== "zfs get all" || !commandOk(result)) {
       continue
     }
 
@@ -596,6 +607,7 @@ export function parseSnapshots(results: CommandResult[]): SnapshotStatus[] {
         created_at: Number.isNaN(creationSeconds)
           ? null
           : new Date(creationSeconds * 1000).toISOString(),
+        properties: [],
       }
       return snapshot
     })
@@ -792,9 +804,12 @@ export function attachPoolDetails(
   const attachSnapshots = (dataset: DatasetStatus): DatasetStatus => ({
     ...dataset,
     properties: propertiesByDataset.get(dataset.path) ?? [],
-    snapshots: (snapshotsByDataset.get(dataset.path) ?? []).sort((a, b) =>
-      (b.created_at ?? "").localeCompare(a.created_at ?? "")
-    ),
+    snapshots: (snapshotsByDataset.get(dataset.path) ?? [])
+      .map((snapshot) => ({
+        ...snapshot,
+        properties: propertiesByDataset.get(snapshot.path) ?? [],
+      }))
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")),
     children: dataset.children.map(attachSnapshots),
   })
   const topologyByPool = new Map(
@@ -910,27 +925,13 @@ export async function getStatus(): Promise<StatusPayload> {
     BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
   )
   const datasets = parseDatasets(baseCommands)
-  const propertyCommands = await Promise.all(
-    datasets.map((dataset) =>
-      runCommand(`zfs get all ${dataset.path}`, [
-        "zfs",
-        "get",
-        "-H",
-        "-p",
-        "-o",
-        "name,property,value,source",
-        "all",
-        dataset.path,
-      ])
-    )
-  )
-  const commands = [...baseCommands, ...propertyCommands]
+  const commands = baseCommands
   const overall = classifyOverall(commands)
   const pools = attachPoolDetails(
     attachDatasetsToPools(parsePools(commands), datasets),
     parseSnapshots(commands),
     parseVdevs(commands),
-    parseDatasetProperties(commands)
+    parseZfsProperties(commands)
   )
 
   return {
