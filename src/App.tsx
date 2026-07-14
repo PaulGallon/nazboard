@@ -629,7 +629,6 @@ function DatasetView({
           <Card key={label}>
             <CardHeader>
               <CardTitle>{label}</CardTitle>
-              <CardDescription>Reported by zfs get all</CardDescription>
             </CardHeader>
             <CardContent className="truncate text-2xl font-semibold tabular-nums">
               {value}
