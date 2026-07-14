@@ -30,7 +30,7 @@ import {
 const root = process.cwd()
 const fixtureDir = join(root, "tests")
 const execFileAsync = promisify(execFile)
-const generator = join(root, "scripts", "generate-test-data.mjs")
+const generator = join(root, "scripts", "generate-test-data.sh")
 const temporaryRoot = join(root, "build")
 
 async function fakeZfsCommands(directory: string, zfsExitCode = 0) {
@@ -81,16 +81,12 @@ describe("test data generator", () => {
     const binDirectory = await fakeZfsCommands(temporaryDirectory)
     const outputDirectory = join(temporaryDirectory, "fixtures")
 
-    await execFileAsync(
-      process.execPath,
-      [generator, "--output-dir", outputDirectory],
-      {
-        env: {
-          ...process.env,
-          PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
-        },
-      }
-    )
+    await execFileAsync(generator, ["--output-dir", outputDirectory], {
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+      },
+    })
 
     const expected = new Map([
       ["zpool_status_x.txt", "status -x\n"],
@@ -114,6 +110,56 @@ describe("test data generator", () => {
     }
   })
 
+  it("redacts serial-based leaf device names", async (t) => {
+    const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
+    t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
+    const binDirectory = await fakeZfsCommands(temporaryDirectory)
+    const outputDirectory = join(temporaryDirectory, "fixtures")
+    const serial = "ata-Samsung_SSD_870_EVO_S6PUNX0T123456"
+    const status = [
+      "  pool: tank",
+      "config:",
+      "",
+      "\tNAME                                      STATE     READ WRITE CKSUM",
+      "\ttank                                      ONLINE       0     0     0",
+      "\t  mirror-0                                ONLINE       0     0     0",
+      `\t    ${serial}  ONLINE       0     0     0`,
+      "\t    wwn-0x5000c50012345678                 ONLINE       0     0     0",
+      "\tspares",
+      "\t  nvme-eui.0025388b12345678                AVAIL",
+      "",
+      "errors: No known data errors",
+      "",
+    ].join("\n")
+    await writeFile(
+      join(binDirectory, "zpool"),
+      `#!/bin/sh\ncase "$*" in\n  "status"|"status -x") printf '%s' '${status}' ;;\n  *) printf '%s\\n' "$*" ;;\nesac\n`
+    )
+
+    await execFileAsync(generator, ["--output-dir", outputDirectory], {
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+      },
+    })
+
+    const fullStatus = await readFile(
+      join(outputDirectory, "zpool_status.txt"),
+      "utf8"
+    )
+    const healthStatus = await readFile(
+      join(outputDirectory, "zpool_status_x.txt"),
+      "utf8"
+    )
+    for (const output of [fullStatus, healthStatus]) {
+      assert.doesNotMatch(output, /Samsung|5000c50012345678|0025388b12345678/)
+      assert.match(output, /mirror-0/)
+      assert.match(output, /disk-1/)
+      assert.match(output, /disk-2/)
+      assert.match(output, /disk-3/)
+    }
+  })
+
   it("does not replace fixtures when a command fails", async (t) => {
     const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
     t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
@@ -124,16 +170,12 @@ describe("test data generator", () => {
     await writeFile(existingFixture, "existing fixture\n")
 
     await assert.rejects(
-      execFileAsync(
-        process.execPath,
-        [generator, "--output-dir", outputDirectory],
-        {
-          env: {
-            ...process.env,
-            PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
-          },
-        }
-      )
+      execFileAsync(generator, ["--output-dir", outputDirectory], {
+        env: {
+          ...process.env,
+          PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+        },
+      })
     )
 
     assert.equal(await readFile(existingFixture, "utf8"), "existing fixture\n")
