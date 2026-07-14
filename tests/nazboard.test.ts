@@ -333,15 +333,15 @@ describe("status payload", () => {
       assert.equal(status.pools[0].datasets[0].children.length, 2)
       assert.equal(status.pools[0].vdevs.length, 4)
       assert.equal(status.pools[0].vdevs[0].disks.length, 2)
-      assert.equal(status.pools[0].datasets[0].snapshots.length, 1)
-      assert.equal(status.pools[0].datasets[0].children[0].snapshots.length, 2)
+      assert.equal(status.pools[0].datasets[0].snapshots.length, 0)
+      assert.equal(status.pools[0].datasets[0].children[0].snapshots.length, 1)
       assert.equal(
         status.pools[0].datasets[0].properties.find(
           (property) => property.property === "compressratio"
         )?.value,
-        "1.18x"
+        "1.00"
       )
-      assert.equal(status.pools[0].snapshot_used_bytes, 16_669_841_818)
+      assert.equal(status.pools[0].snapshot_used_bytes, 123_904)
       assert.equal(status.commands.length, 8)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {

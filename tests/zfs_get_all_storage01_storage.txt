@@ -1,5 +1,72 @@
-storage01/storage	compressratio	1.05x	-
-storage01/storage	compression	lz4	inherited from storage01
-storage01/storage	quota	none	default
-storage01/storage	recordsize	1048576	local
+storage01/storage	type	filesystem	-
+storage01/storage	creation	1768063440	-
+storage01/storage	used	23183910400	-
+storage01/storage	available	343996163072	-
+storage01/storage	referenced	23183910400	-
+storage01/storage	compressratio	1.03	-
+storage01/storage	mounted	yes	-
+storage01/storage	quota	0	default
+storage01/storage	reservation	0	default
+storage01/storage	recordsize	131072	default
 storage01/storage	mountpoint	/storage01/storage	default
+storage01/storage	sharenfs	rw=192.168.0.109,rw=192.168.0.10,rw=192.168.0.197,rw=10.42.0.0/16,no_root_squash	local
+storage01/storage	checksum	on	default
+storage01/storage	compression	zstd	inherited from storage01
+storage01/storage	atime	off	inherited from storage01
+storage01/storage	devices	on	default
+storage01/storage	exec	on	default
+storage01/storage	setuid	on	default
+storage01/storage	readonly	off	default
+storage01/storage	zoned	off	default
+storage01/storage	snapdir	hidden	inherited from storage01
+storage01/storage	aclmode	discard	default
+storage01/storage	aclinherit	restricted	default
+storage01/storage	createtxg	23935166	-
+storage01/storage	canmount	on	default
+storage01/storage	xattr	sa	inherited from storage01
+storage01/storage	copies	1	default
+storage01/storage	version	5	-
+storage01/storage	utf8only	off	-
+storage01/storage	normalization	none	-
+storage01/storage	casesensitivity	sensitive	-
+storage01/storage	vscan	off	default
+storage01/storage	nbmand	off	default
+storage01/storage	sharesmb	off	inherited from storage01
+storage01/storage	refquota	0	default
+storage01/storage	refreservation	0	default
+storage01/storage	guid	17945189241052490143	-
+storage01/storage	primarycache	all	default
+storage01/storage	secondarycache	all	default
+storage01/storage	usedbysnapshots	0	-
+storage01/storage	usedbydataset	23183910400	-
+storage01/storage	usedbychildren	0	-
+storage01/storage	usedbyrefreservation	0	-
+storage01/storage	logbias	latency	default
+storage01/storage	objsetid	12004	-
+storage01/storage	dedup	off	default
+storage01/storage	mlslabel	none	default
+storage01/storage	sync	standard	default
+storage01/storage	dnodesize	legacy	default
+storage01/storage	refcompressratio	1.03	-
+storage01/storage	written	23183910400	-
+storage01/storage	logicalused	23868387328	-
+storage01/storage	logicalreferenced	23868387328	-
+storage01/storage	volmode	default	default
+storage01/storage	filesystem_limit	none	default
+storage01/storage	snapshot_limit	none	default
+storage01/storage	filesystem_count	none	default
+storage01/storage	snapshot_count	none	default
+storage01/storage	snapdev	hidden	default
+storage01/storage	acltype	posix	inherited from storage01
+storage01/storage	context	none	default
+storage01/storage	fscontext	none	default
+storage01/storage	defcontext	none	default
+storage01/storage	rootcontext	none	default
+storage01/storage	relatime	on	default
+storage01/storage	redundant_metadata	all	default
+storage01/storage	overlay	on	default
+storage01/storage	encryption	off	default
+storage01/storage	keylocation	none	default
+storage01/storage	keyformat	none	default
+storage01/storage	pbkdf2iters	0	default
+storage01/storage	special_small_blocks	16384	inherited from storage01

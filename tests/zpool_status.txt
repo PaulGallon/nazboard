@@ -8,17 +8,17 @@ config:
 	NAME                                                STATE     READ WRITE CKSUM
 	storage01                                           ONLINE       0     0     0
 	  mirror-0                                          ONLINE       0     0     0
-	    scsi-SATA_WDC_WD30EFRX-68A_WD-XXXXXXXXXXXX      ONLINE       0     0     0
-	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	    disk-1      ONLINE       0     0     0
+	    disk-2      ONLINE       0     0     0
 	  mirror-1                                          ONLINE       0     0     0
-	    scsi-SATA_TOSHIBA_HDWD130_XXXXXXXXX             ONLINE       0     0     0
-	    scsi-SATA_TOSHIBA_HDWD130_XXXXXXXXX             ONLINE       0     0     0
+	    disk-3             ONLINE       0     0     0
+	    disk-4             ONLINE       0     0     0
 	  mirror-3                                          ONLINE       0     0     0
-	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
-	    scsi-SATA_WDC_WD30EFRX-68E_WD-XXXXXXXXXXXX      ONLINE       0     0     0
+	    disk-5      ONLINE       0     0     0
+	    disk-6      ONLINE       0     0     0
 	special	
 	  mirror-4                                          ONLINE       0     0     0
-	    nvme-SAMSUNG_MZVLB256HAHQ-000H1_XXXXXXXXXXXXXX  ONLINE       0     0     0
-	    nvme-SAMSUNG_MZVLB256HAHQ-000H1_XXXXXXXXXXXXXX  ONLINE       0     0     0
+	    disk-7  ONLINE       0     0     0
+	    disk-8  ONLINE       0     0     0
 
 errors: No known data errors
