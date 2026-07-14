@@ -350,14 +350,6 @@ function Overview({ status }: { status: StatusPayload }) {
         <Card>
           <CardHeader>
             <CardTitle>Health</CardTitle>
-            <CardDescription>{status.overall.message}</CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool status -x">
-                OpenZFS&apos;s concise pool-health summary. Healthy means every
-                imported pool reports no known health problem; warnings and
-                command failures appear in Issues.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {stateLabel(status.overall.state)}
@@ -366,13 +358,6 @@ function Overview({ status }: { status: StatusPayload }) {
         <Card>
           <CardHeader>
             <CardTitle>Pools</CardTitle>
-            <CardDescription>Detected ZFS pools</CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
-                The number of imported storage pools returned by OpenZFS. A pool
-                combines one or more top-level virtual devices into storage.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {status.pools.length}
@@ -381,13 +366,6 @@ function Overview({ status }: { status: StatusPayload }) {
         <Card>
           <CardHeader>
             <CardTitle>Datasets</CardTitle>
-            <CardDescription>Listed ZFS datasets</CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
-                The number of filesystems and volumes returned by OpenZFS,
-                including nested datasets. Snapshots are counted separately.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {datasets.length}
@@ -396,22 +374,6 @@ function Overview({ status }: { status: StatusPayload }) {
         <Card>
           <CardHeader>
             <CardTitle>Snapshots</CardTitle>
-            <CardDescription>
-              {formatBytes(
-                status.pools.reduce(
-                  (total, pool) => total + pool.snapshot_used_bytes,
-                  0
-                )
-              )}{" "}
-              held
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -t snapshot -o name,used,refer,creation">
-                Point-in-time, read-only versions of datasets. The count comes
-                from the snapshot list; held space uses each dataset&apos;s
-                usedbysnapshots value to avoid double-counting shared blocks.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {snapshotCount}
