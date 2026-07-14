@@ -189,22 +189,33 @@ export function DatasetUsageDonut({
             tooltipType="none"
           />
           <ChartTooltip
-            content={
-              <ChartTooltipContent
-                hideLabel
-                nameKey="name"
-                formatter={(value, name) => (
-                  <div className="flex min-w-48 items-center justify-between gap-4">
-                    <span className="max-w-64 truncate text-muted-foreground">
-                      {String(name)}
-                    </span>
-                    <span className="font-mono font-medium text-foreground">
-                      {formatBytes(Number(value))}
-                    </span>
-                  </div>
-                )}
-              />
-            }
+            content={(tooltipProps) => {
+              const visiblePayload = tooltipProps.payload?.filter(
+                (item) => item.type !== "none"
+              )
+              if (!visiblePayload?.length) {
+                return null
+              }
+
+              return (
+                <ChartTooltipContent
+                  active={tooltipProps.active}
+                  payload={visiblePayload}
+                  hideLabel
+                  nameKey="name"
+                  formatter={(value, name) => (
+                    <div className="flex min-w-48 items-center justify-between gap-4">
+                      <span className="max-w-64 truncate text-muted-foreground">
+                        {String(name)}
+                      </span>
+                      <span className="font-mono font-medium text-foreground">
+                        {formatBytes(Number(value))}
+                      </span>
+                    </div>
+                  )}
+                />
+              )
+            }}
           />
           <Pie
             data={segments}
