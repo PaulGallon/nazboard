@@ -413,13 +413,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         <Card>
           <CardHeader>
             <CardTitle>Health</CardTitle>
-            <CardDescription>{pool.name} pool health</CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
-                The health state OpenZFS reports for this pool. Non-ONLINE
-                states also appear in the overview Issues panel.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {pool.health}
@@ -428,14 +421,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         <Card>
           <CardHeader>
             <CardTitle>Vdevs</CardTitle>
-            <CardDescription>Top-level virtual devices</CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool status">
-                The number of direct children beneath this pool&apos;s root.
-                Mirrors, RAIDZ groups, and individual disks each count as one
-                top-level vdev.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {pool.vdevs.length}
@@ -444,13 +429,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         <Card>
           <CardHeader>
             <CardTitle>Datasets</CardTitle>
-            <CardDescription>Listed datasets in this pool</CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
-                The number of filesystems and volumes in this pool, including
-                nested datasets. Snapshots are counted separately.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {datasets.length}
@@ -459,16 +437,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         <Card>
           <CardHeader>
             <CardTitle>Snapshots</CardTitle>
-            <CardDescription>
-              {formatBytes(pool.snapshot_used_bytes)} held
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -t snapshot -o name,used,refer,creation">
-                Point-in-time, read-only versions of this pool&apos;s datasets.
-                Held space uses each dataset&apos;s usedbysnapshots value to
-                avoid double-counting shared blocks.
-              </PanelHelp>
-            </CardAction>
           </CardHeader>
           <CardContent className="text-3xl font-semibold tabular-nums">
             {snapshots.length}
