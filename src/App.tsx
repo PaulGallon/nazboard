@@ -52,6 +52,7 @@ import {
   type DatasetProperty,
   type DatasetStatus,
   type DiskStatus,
+  type Issue,
   type PoolStatus,
   type Selection,
   type SnapshotStatus,
@@ -243,6 +244,60 @@ function RawView({ commands }: { commands: CommandResult[] }) {
   )
 }
 
+function IssuesCard({
+  issues,
+  description,
+  emptyDescription,
+  includeCommands = false,
+}: {
+  issues: Issue[]
+  description: string
+  emptyDescription: string
+  includeCommands?: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Issues</CardTitle>
+        <CardDescription>{description}</CardDescription>
+        <CardAction>
+          <PanelHelp source="All fixed status commands plus nazboard usage thresholds">
+            {includeCommands
+              ? "Command failures, non-ONLINE pools, vdevs or disks, device error counters, and datasets at or above 75% usage."
+              : "Non-ONLINE pool, vdev, or disk states, device error counters, and datasets in this pool at or above 75% usage."}{" "}
+            Usage reaches error severity at 85%.
+          </PanelHelp>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {issues.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No issues detected</EmptyTitle>
+              <EmptyDescription>{emptyDescription}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {issues.map((issue) => (
+              <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
+                <AlertCircleIcon />
+                <AlertTitle className="flex items-center gap-2">
+                  {issue.name}
+                  <Badge variant={statusVariant(issue.severity)}>
+                    {stateLabel(issue.severity)}
+                  </Badge>
+                </AlertTitle>
+                <AlertDescription>{issue.message}</AlertDescription>
+              </Alert>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function Overview({ status }: { status: StatusPayload }) {
   const datasets = status.pools.flatMap((pool) =>
     flattenDatasets(pool.datasets)
@@ -329,53 +384,31 @@ function Overview({ status }: { status: StatusPayload }) {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Issues</CardTitle>
-          <CardDescription>
-            Warnings and errors across commands, pools, and datasets
-          </CardDescription>
-          <CardAction>
-            <PanelHelp source="All fixed status commands plus nazboard usage thresholds">
-              Command failures, non-ONLINE pools, vdevs or disks, device error
-              counters, and datasets at or above 75% usage. Usage reaches error
-              severity at 85%.
-            </PanelHelp>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          {status.issues.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>No issues detected</EmptyTitle>
-                <EmptyDescription>{status.overall.message}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {status.issues.map((issue) => (
-                <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
-                  <AlertCircleIcon />
-                  <AlertTitle className="flex items-center gap-2">
-                    {issue.name}
-                    <Badge variant={statusVariant(issue.severity)}>
-                      {stateLabel(issue.severity)}
-                    </Badge>
-                  </AlertTitle>
-                  <AlertDescription>{issue.message}</AlertDescription>
-                </Alert>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <IssuesCard
+        issues={status.issues}
+        description="Warnings and errors across commands, pools, and datasets"
+        emptyDescription={status.overall.message}
+        includeCommands
+      />
     </div>
   )
 }
 
-function PoolView({ pool }: { pool: PoolStatus }) {
+function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
   const datasets = flattenDatasets(pool.datasets)
   const snapshots = datasets.flatMap((dataset) => dataset.snapshots)
+  const diskNames = new Set(
+    pool.vdevs.flatMap((vdev) => vdev.disks.map((disk) => disk.name))
+  )
+  const poolIssues = issues.filter((issue) => {
+    if (issue.scope === "pool") {
+      return issue.name === pool.name
+    }
+    if (issue.scope === "vdev" || issue.scope === "dataset") {
+      return issue.name === pool.name || issue.name.startsWith(pool.name + "/")
+    }
+    return issue.scope === "disk" && diskNames.has(issue.name)
+  })
 
   return (
     <div className="flex flex-col gap-4">
@@ -447,6 +480,11 @@ function PoolView({ pool }: { pool: PoolStatus }) {
           </CardContent>
         </Card>
       </div>
+      <IssuesCard
+        issues={poolIssues}
+        description={`Warnings and errors for ${pool.name} and its storage`}
+        emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
+      />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
           <CardHeader>
@@ -873,7 +911,7 @@ export function App() {
           ) : selection.kind === "raw" ? (
             <RawView commands={status.commands} />
           ) : selectedPool ? (
-            <PoolView pool={selectedPool} />
+            <PoolView pool={selectedPool} issues={status.issues} />
           ) : selectedDataset && selectedDatasetPool ? (
             <DatasetView dataset={selectedDataset} pool={selectedDatasetPool} />
           ) : (
