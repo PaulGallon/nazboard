@@ -76,9 +76,15 @@ export function AppSidebar({
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="nazboard">
+            <SidebarMenuButton
+              size="lg"
+              tooltip="nazboard"
+              aria-label="nazboard"
+            >
               <HardDriveIcon />
-              <span className="font-heading text-sm">nazboard</span>
+              <span className="font-heading text-sm group-data-[collapsible=icon]:hidden">
+                nazboard
+              </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
