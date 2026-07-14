@@ -1,16 +1,20 @@
 import { execFile } from "node:child_process"
-import { readFile, stat } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { readFile, mkdir, rename, stat, writeFile } from "node:fs/promises"
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http"
+import { tmpdir } from "node:os"
 import { extname, join, normalize, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 export const HOST = "0.0.0.0"
 export const PORT = Number.parseInt(process.env.PORT ?? "8080", 10)
 export const COMMAND_TIMEOUT_MS = 5000
+export const COMMAND_CACHE_TTL_MS = 60_000
+export const CACHE_DIR_ENV = "NAZBOARD_CACHE_DIR"
 export const FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
 
 type State = "ok" | "warn" | "error"
@@ -41,8 +45,15 @@ export type DatasetStatus = {
   mountpoint: string
   used_percent: number
   state: State
+  properties: DatasetProperty[]
   snapshots: SnapshotStatus[]
   children: DatasetStatus[]
+}
+
+export type DatasetProperty = {
+  property: string
+  value: string
+  source: string
 }
 
 export type SnapshotStatus = {
@@ -96,7 +107,7 @@ export type StatusPayload = {
   commands: CommandResult[]
 }
 
-const COMMANDS: Array<[string, string[]]> = [
+const BASE_COMMANDS: Array<[string, string[]]> = [
   ["ZFS health summary", ["zpool", "status", "-x"]],
   ["zpool list", ["zpool", "list", "-H", "-o", "name,size,alloc,free,health"]],
   ["zpool status", ["zpool", "status"]],
@@ -185,8 +196,41 @@ function commandKey(command: string[]) {
   return command.join("\0")
 }
 
+function cacheDirectory() {
+  return process.env[CACHE_DIR_ENV] ?? join(tmpdir(), "nazboard-cache")
+}
+
+function cacheFilePath(command: string[]) {
+  const digest = createHash("sha256")
+    .update(commandKey(command))
+    .digest("base64url")
+  return join(cacheDirectory(), `${digest}.json`)
+}
+
 function commandOk(result: CommandResult) {
   return result.returncode === 0 && result.error === null
+}
+
+function fixtureFilenameForCommand(command: string[]) {
+  const fixedFixture = FIXTURE_FILES.get(commandKey(command))
+  if (fixedFixture) {
+    return fixedFixture
+  }
+
+  const isZfsGetAll =
+    command[0] === "zfs" &&
+    command[1] === "get" &&
+    command[2] === "-H" &&
+    command[3] === "-p" &&
+    command[4] === "-o" &&
+    command[5] === "name,property,value,source" &&
+    command[6] === "all" &&
+    command.length === 8
+  if (!isZfsGetAll) {
+    return null
+  }
+
+  return `zfs_get_all_${command[7].replaceAll(/[^A-Za-z0-9._-]/g, "_")}.txt`
 }
 
 export async function readFixture(
@@ -194,7 +238,7 @@ export async function readFixture(
   command: string[],
   directory: string
 ): Promise<CommandResult> {
-  const filename = FIXTURE_FILES.get(commandKey(command))
+  const filename = fixtureFilenameForCommand(command)
   if (!filename) {
     return {
       title,
@@ -228,6 +272,48 @@ export async function readFixture(
   }
 }
 
+async function readCachedCommand(
+  title: string,
+  command: string[]
+): Promise<CommandResult | null> {
+  try {
+    const cachePath = cacheFilePath(command)
+    const [cacheStat, cacheContents] = await Promise.all([
+      stat(cachePath),
+      readFile(cachePath, "utf8"),
+    ])
+    if (Date.now() - cacheStat.mtimeMs > COMMAND_CACHE_TTL_MS) {
+      return null
+    }
+
+    const cached = JSON.parse(cacheContents) as CommandResult
+    if (
+      cached.title === title &&
+      Array.isArray(cached.command) &&
+      commandKey(cached.command) === commandKey(command)
+    ) {
+      return cached
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+async function writeCachedCommand(result: CommandResult) {
+  try {
+    const directory = cacheDirectory()
+    await mkdir(directory, { recursive: true })
+    const cachePath = cacheFilePath(result.command)
+    const temporaryPath = `${cachePath}.${process.pid}.${Date.now()}.tmp`
+    await writeFile(temporaryPath, JSON.stringify(result), "utf8")
+    await rename(temporaryPath, cachePath)
+  } catch {
+    // Cache failures should never make the read-only dashboard unavailable.
+  }
+}
+
 export async function runCommand(
   title: string,
   command: string[]
@@ -235,6 +321,11 @@ export async function runCommand(
   const fixtureDir = process.env[FIXTURE_DIR_ENV]
   if (fixtureDir) {
     return readFixture(title, command, fixtureDir)
+  }
+
+  const cached = await readCachedCommand(title, command)
+  if (cached) {
+    return cached
   }
 
   return new Promise((resolveCommand) => {
@@ -247,8 +338,12 @@ export async function runCommand(
         windowsHide: true,
       },
       (error, stdout, stderr) => {
+        const resolveAndCache = (result: CommandResult) => {
+          void writeCachedCommand(result).finally(() => resolveCommand(result))
+        }
+
         if (!error) {
-          resolveCommand({
+          resolveAndCache({
             title,
             command,
             returncode: 0,
@@ -260,7 +355,7 @@ export async function runCommand(
         }
 
         if (typeof error.code === "number") {
-          resolveCommand({
+          resolveAndCache({
             title,
             command,
             returncode: error.code,
@@ -271,7 +366,7 @@ export async function runCommand(
           return
         }
 
-        resolveCommand({
+        resolveAndCache({
           title,
           command,
           returncode: null,
@@ -425,12 +520,46 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
         mountpoint: parts[4],
         used_percent: percent,
         state: classifyUsage(percent),
+        properties: [],
         snapshots: [],
         children: [],
       }
       return dataset
     })
     .filter((dataset): dataset is DatasetStatus => dataset !== null)
+}
+
+export function parseDatasetProperties(
+  results: CommandResult[]
+): Map<string, DatasetProperty[]> {
+  const propertiesByDataset = new Map<string, DatasetProperty[]>()
+
+  for (const result of results) {
+    if (!result.title.startsWith("zfs get all ") || !commandOk(result)) {
+      continue
+    }
+
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) {
+        continue
+      }
+
+      const parts = line.includes("\t")
+        ? line.split("\t")
+        : line.trim().split(/\s+/, 4)
+      if (parts.length < 4 || parts[0].toUpperCase() === "NAME") {
+        continue
+      }
+
+      const [datasetPath, property, value, source] = parts
+      const datasetProperties = propertiesByDataset.get(datasetPath) ?? []
+      datasetProperties.push({ property, value, source })
+      propertiesByDataset.set(datasetPath, datasetProperties)
+    }
+  }
+
+  return propertiesByDataset
 }
 
 export function parseSnapshots(results: CommandResult[]): SnapshotStatus[] {
@@ -650,7 +779,8 @@ export function attachDatasetsToPools(
 export function attachPoolDetails(
   pools: PoolStatus[],
   snapshots: SnapshotStatus[],
-  topologies: PoolTopology[]
+  topologies: PoolTopology[],
+  propertiesByDataset: Map<string, DatasetProperty[]> = new Map()
 ) {
   const snapshotsByDataset = new Map<string, SnapshotStatus[]>()
   for (const snapshot of snapshots) {
@@ -661,6 +791,7 @@ export function attachPoolDetails(
 
   const attachSnapshots = (dataset: DatasetStatus): DatasetStatus => ({
     ...dataset,
+    properties: propertiesByDataset.get(dataset.path) ?? [],
     snapshots: (snapshotsByDataset.get(dataset.path) ?? []).sort((a, b) =>
       (b.created_at ?? "").localeCompare(a.created_at ?? "")
     ),
@@ -775,14 +906,31 @@ export function collectIssues(
 }
 
 export async function getStatus(): Promise<StatusPayload> {
-  const commands = await Promise.all(
-    COMMANDS.map(([title, command]) => runCommand(title, command))
+  const baseCommands = await Promise.all(
+    BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
   )
+  const datasets = parseDatasets(baseCommands)
+  const propertyCommands = await Promise.all(
+    datasets.map((dataset) =>
+      runCommand(`zfs get all ${dataset.path}`, [
+        "zfs",
+        "get",
+        "-H",
+        "-p",
+        "-o",
+        "name,property,value,source",
+        "all",
+        dataset.path,
+      ])
+    )
+  )
+  const commands = [...baseCommands, ...propertyCommands]
   const overall = classifyOverall(commands)
   const pools = attachPoolDetails(
-    attachDatasetsToPools(parsePools(commands), parseDatasets(commands)),
+    attachDatasetsToPools(parsePools(commands), datasets),
     parseSnapshots(commands),
-    parseVdevs(commands)
+    parseVdevs(commands),
+    parseDatasetProperties(commands)
   )
 
   return {

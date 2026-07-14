@@ -26,8 +26,15 @@ export type DatasetStatus = {
   mountpoint: string
   used_percent: number
   state: State
+  properties: DatasetProperty[]
   snapshots: SnapshotStatus[]
   children: DatasetStatus[]
+}
+
+export type DatasetProperty = {
+  property: string
+  value: string
+  source: string
 }
 
 export type SnapshotStatus = {

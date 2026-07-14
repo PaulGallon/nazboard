@@ -1,0 +1,5 @@
+storage01/storage	compressratio	1.05x	-
+storage01/storage	compression	lz4	inherited from storage01
+storage01/storage	quota	none	default
+storage01/storage	recordsize	1048576	local
+storage01/storage	mountpoint	/storage01/storage	default

@@ -76,6 +76,17 @@ zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots \
   >"$staging_directory/zfs_list.txt"
 zfs list -H -p -t snapshot -o name,used,refer,creation \
   >"$staging_directory/zfs_snapshots.txt"
+while IFS= read -r line; do
+  set -- $line
+  dataset_name=${1:-}
+  if [ -z "$dataset_name" ] || [ "$dataset_name" = "NAME" ]; then
+    continue
+  fi
+
+  fixture_name=$(printf '%s' "$dataset_name" | sed 's/[^A-Za-z0-9._-]/_/g')
+  zfs get -H -p -o name,property,value,source all "$dataset_name" \
+    >"$staging_directory/zfs_get_all_$fixture_name.txt"
+done <"$staging_directory/zfs_list.txt"
 
 if [ "$redact_device_names" -eq 1 ]; then
   awk \
@@ -143,6 +154,12 @@ for filename in \
 do
   cp "$staging_directory/$filename" "$output_directory/$filename"
   printf 'Wrote %s/%s\n' "$output_directory" "$filename"
+done
+
+for filename in "$staging_directory"/zfs_get_all_*.txt; do
+  [ -e "$filename" ] || continue
+  cp "$filename" "$output_directory/$(basename "$filename")"
+  printf 'Wrote %s/%s\n' "$output_directory" "$(basename "$filename")"
 done
 
 if [ "$redact_device_names" -eq 1 ]; then

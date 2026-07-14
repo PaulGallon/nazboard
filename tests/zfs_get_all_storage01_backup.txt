@@ -1,0 +1,5 @@
+storage01/backup	compressratio	1.42x	-
+storage01/backup	compression	zstd	local
+storage01/backup	quota	1099511627776	local
+storage01/backup	recordsize	131072	default
+storage01/backup	mountpoint	/storage01/backup	default

@@ -13,17 +13,20 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 
 import {
+  CACHE_DIR_ENV,
   FIXTURE_DIR_ENV,
   attachDatasetsToPools,
   classifyUsage,
   getStatus,
   nestDatasets,
   parseDatasets,
+  parseDatasetProperties,
   parsePools,
   parseSnapshots,
   parseVdevs,
   parseZfsSize,
   readFixture,
+  runCommand,
   type CommandResult,
 } from "../server/nazboard.js"
 
@@ -99,6 +102,10 @@ describe("test data generator", () => {
       [
         "zfs_snapshots.txt",
         "list -H -p -t snapshot -o name,used,refer,creation\n",
+      ],
+      [
+        "zfs_get_all_list.txt",
+        "get -H -p -o name,property,value,source all list\n",
       ],
     ])
 
@@ -242,6 +249,23 @@ describe("ZFS parsing", () => {
     assert.equal(snapshots[0].created_at, "2026-07-14T09:00:00.000Z")
   })
 
+  it("parses dataset properties", () => {
+    const properties = parseDatasetProperties([
+      commandResult(
+        "zfs get all tank/home",
+        [
+          "tank/home\tcompressratio\t1.23x\t-",
+          "tank/home\tcompression\tlz4\tlocal",
+        ].join("\n")
+      ),
+    ])
+
+    assert.deepEqual(properties.get("tank/home"), [
+      { property: "compressratio", value: "1.23x", source: "-" },
+      { property: "compression", value: "lz4", source: "local" },
+    ])
+  })
+
   it("parses top-level vdevs, allocation classes, and leaf disks", () => {
     const topologies = parseVdevs([
       commandResult(
@@ -311,14 +335,62 @@ describe("status payload", () => {
       assert.equal(status.pools[0].vdevs[0].disks.length, 2)
       assert.equal(status.pools[0].datasets[0].snapshots.length, 1)
       assert.equal(status.pools[0].datasets[0].children[0].snapshots.length, 2)
+      assert.equal(
+        status.pools[0].datasets[0].properties.find(
+          (property) => property.property === "compressratio"
+        )?.value,
+        "1.18x"
+      )
       assert.equal(status.pools[0].snapshot_used_bytes, 16_669_841_818)
-      assert.equal(status.commands.length, 5)
+      assert.equal(status.commands.length, 8)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {
         delete process.env[FIXTURE_DIR_ENV]
       } else {
         process.env[FIXTURE_DIR_ENV] = previous
+      }
+    }
+  })
+})
+
+describe("command cache", () => {
+  it("reuses command output from disk for one minute", async (t) => {
+    const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
+    t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
+    const binDirectory = await fakeZfsCommands(temporaryDirectory)
+    const cacheDirectory = join(temporaryDirectory, "cache")
+    const counter = join(temporaryDirectory, "counter")
+    await writeFile(
+      join(binDirectory, "zpool"),
+      [
+        "#!/bin/sh",
+        `count=$(cat "${counter}" 2>/dev/null || printf 0)`,
+        "count=$((count + 1))",
+        `printf '%s' "$count" >"${counter}"`,
+        'printf "run-%s\\n" "$count"',
+      ].join("\n")
+    )
+    await chmod(join(binDirectory, "zpool"), 0o755)
+
+    const previousPath = process.env.PATH
+    const previousCacheDirectory = process.env[CACHE_DIR_ENV]
+    process.env.PATH = `${binDirectory}:${process.env.PATH ?? ""}`
+    process.env[CACHE_DIR_ENV] = cacheDirectory
+
+    try {
+      const first = await runCommand("cache test", ["zpool", "status", "-x"])
+      const second = await runCommand("cache test", ["zpool", "status", "-x"])
+
+      assert.equal(first.stdout, "run-1\n")
+      assert.equal(second.stdout, "run-1\n")
+      assert.equal(await readFile(counter, "utf8"), "1")
+    } finally {
+      process.env.PATH = previousPath
+      if (previousCacheDirectory === undefined) {
+        delete process.env[CACHE_DIR_ENV]
+      } else {
+        process.env[CACHE_DIR_ENV] = previousCacheDirectory
       }
     }
   })

@@ -35,12 +35,21 @@ import {
 } from "@/components/ui/sidebar"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   fetchStatus,
   findDataset,
   flattenDatasets,
   formatBytes,
   stateLabel,
   type CommandResult,
+  type DatasetProperty,
   type DatasetStatus,
   type DiskStatus,
   type PoolStatus,
@@ -85,6 +94,26 @@ function deviceState(device: DiskStatus): State {
 
 function formatSnapshotDate(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Unknown"
+}
+
+function propertyValue(properties: DatasetProperty[], propertyName: string) {
+  return (
+    properties.find((property) => property.property === propertyName)?.value ??
+    "-"
+  )
+}
+
+function displayPropertyValue(value: string) {
+  if (value === "" || value === "-") {
+    return "-"
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  if (/^\d+$/.test(value) && parsed >= 1024) {
+    return formatBytes(parsed)
+  }
+
+  return value
 }
 
 function SnapshotsPanel({
@@ -500,8 +529,31 @@ function PoolView({ pool }: { pool: PoolStatus }) {
 }
 
 function DatasetView({ dataset }: { dataset: DatasetStatus }) {
+  const highlightedProperties = [
+    ["Compression ratio", propertyValue(dataset.properties, "compressratio")],
+    ["Compression", propertyValue(dataset.properties, "compression")],
+    ["Quota", propertyValue(dataset.properties, "quota")],
+    [
+      "Record size",
+      displayPropertyValue(propertyValue(dataset.properties, "recordsize")),
+    ],
+  ]
+
   return (
     <div className="flex flex-col gap-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {highlightedProperties.map(([label, value]) => (
+          <Card key={label}>
+            <CardHeader>
+              <CardTitle>{label}</CardTitle>
+              <CardDescription>Reported by zfs get all</CardDescription>
+            </CardHeader>
+            <CardContent className="truncate text-2xl font-semibold tabular-nums">
+              {value}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <Card>
           <CardHeader>
@@ -563,6 +615,63 @@ function DatasetView({ dataset }: { dataset: DatasetStatus }) {
         snapshots={dataset.snapshots}
         snapshotUsedBytes={dataset.snapshot_used_bytes}
       />
+      <Card>
+        <CardHeader>
+          <CardTitle>Properties</CardTitle>
+          <CardDescription>
+            {dataset.properties.length} values from zfs get all
+          </CardDescription>
+          <CardAction>
+            <PanelHelp
+              source={`zfs get -H -p -o name,property,value,source all ${dataset.path}`}
+            >
+              Dataset properties reported by OpenZFS. Values are shown as text
+              from the command output; byte-sized numeric values are formatted
+              for readability in this table.
+            </PanelHelp>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          {dataset.properties.length === 0 ? (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>No properties available</EmptyTitle>
+                <EmptyDescription>
+                  The zfs get all command did not return properties for this
+                  dataset.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <ScrollArea className="h-96 rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Property</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead>Source</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dataset.properties.map((property) => (
+                    <TableRow key={property.property}>
+                      <TableCell className="font-medium">
+                        {property.property}
+                      </TableCell>
+                      <TableCell>
+                        {displayPropertyValue(property.value)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{property.source}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

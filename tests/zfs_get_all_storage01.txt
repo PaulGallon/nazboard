@@ -1,0 +1,5 @@
+storage01	compressratio	1.18x	-
+storage01	compression	lz4	local
+storage01	quota	none	default
+storage01	recordsize	131072	default
+storage01	mountpoint	/storage01	default
