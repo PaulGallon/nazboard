@@ -4,9 +4,19 @@ nazboard is a lightweight, read-only web dashboard for at-a-glance ZFS pool and 
 
 It serves a Vite React UI built with shadcn/ui and a small TypeScript HTTP server on port `8080`. The server runs fixed `zpool`/`zfs` commands with Node built-ins and exposes status as JSON.
 
-## Example output
+## Screenshots
 
-![Screenshot showing nazboard interface](docs/screenshot.png)
+### Overview
+
+![nazboard overview](docs/screenshot-overview.png)
+
+### Pool
+
+![nazboard pool details](docs/screenshot-pool.png)
+
+### Dataset
+
+![nazboard dataset details](docs/screenshot-dataset.png)
 
 ## ZFS access caveat
 

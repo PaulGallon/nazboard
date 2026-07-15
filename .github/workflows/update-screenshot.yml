@@ -61,7 +61,7 @@ jobs:
             sleep 1
           done
           exit 1
-      - name: Capture screenshot
+      - name: Capture screenshots
         run: |
           chrome=""
           for candidate in google-chrome-stable google-chrome chromium chromium-browser; do
@@ -71,32 +71,42 @@ jobs:
             fi
           done
           test -n "$chrome"
-          "$chrome" \
-            --headless=new \
-            --disable-gpu \
-            --no-sandbox \
-            --hide-scrollbars \
-            --run-all-compositor-stages-before-draw \
-            --virtual-time-budget=10000 \
-            --window-size=1440,1100 \
-            --screenshot=docs/screenshot.png \
-            http://127.0.0.1:8080/
+
+          capture() {
+            "$chrome" \
+              --headless=new \
+              --disable-gpu \
+              --no-sandbox \
+              --hide-scrollbars \
+              --force-dark-mode \
+              --disable-features=WebContentsForceDark \
+              --force-device-scale-factor=1 \
+              --run-all-compositor-stages-before-draw \
+              --virtual-time-budget=10000 \
+              --window-size=1440,400 \
+              --screenshot="$1" \
+              "$2"
+          }
+
+          capture docs/screenshot-overview.png http://127.0.0.1:8080/
+          capture docs/screenshot-pool.png 'http://127.0.0.1:8080/?pool=storage01'
+          capture docs/screenshot-dataset.png 'http://127.0.0.1:8080/?dataset=storage01%2Fbackup'
       - name: Stop fixture server
         if: always()
         run: |
           if test -n "${server_pid:-}"; then
             kill "$server_pid" || true
           fi
-      - name: Commit screenshot
+      - name: Commit screenshots
         if: github.event_name == 'push'
         run: |
-          if git diff --quiet -- docs/screenshot.png; then
-            echo "docs/screenshot.png is already current."
+          if git diff --quiet -- docs/screenshot-*.png; then
+            echo "The screenshots are already current."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/screenshot.png
-          git commit -m "Update screenshot"
+          git add docs/screenshot-*.png
+          git commit -m "Update screenshots"
           git push

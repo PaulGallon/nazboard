@@ -789,12 +789,25 @@ function LoadingView() {
   )
 }
 
+function initialSelection(): Selection {
+  const parameters = new URLSearchParams(window.location.search)
+  const dataset = parameters.get("dataset")
+  if (dataset) {
+    return { kind: "dataset", id: dataset }
+  }
+
+  const pool = parameters.get("pool")
+  if (pool) {
+    return { kind: "pool", id: pool }
+  }
+
+  return { kind: "overview" }
+}
+
 export function App() {
   const [status, setStatus] = React.useState<StatusPayload | null>(null)
   const [error, setError] = React.useState<string | null>(null)
-  const [selection, setSelection] = React.useState<Selection>({
-    kind: "overview",
-  })
+  const [selection, setSelection] = React.useState<Selection>(initialSelection)
 
   React.useEffect(() => {
     let active = true
