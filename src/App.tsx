@@ -58,6 +58,9 @@ import {
   findDataset,
   flattenDatasets,
   formatBytes,
+  formatPropertyValue,
+  searchForSelection,
+  selectionFromSearch,
   stateLabel,
   type CommandResult,
   type DatasetProperty,
@@ -88,7 +91,7 @@ function statusVariant(
 function deviceState(device: DiskStatus): State {
   const hasErrors =
     device.read_errors + device.write_errors + device.checksum_errors > 0
-  if (device.state.toUpperCase() === "ONLINE" && !hasErrors) {
+  if (["ONLINE", "AVAIL"].includes(device.state.toUpperCase()) && !hasErrors) {
     return "ok"
   }
   if (device.state.toUpperCase() === "DEGRADED" && !hasErrors) {
@@ -128,27 +131,6 @@ function sharingState(properties: DatasetProperty[]) {
 function encryptionState(properties: DatasetProperty[]) {
   const value = propertyValue(properties, "encryption").toLowerCase()
   return value !== "off" && value !== "-" && value !== "none" ? "On" : "Off"
-}
-
-function displayPropertyValue(value: string, propertyName?: string) {
-  if (value === "" || value === "-") {
-    return "-"
-  }
-
-  if (propertyName === "sharenfs") {
-    return value.replaceAll(",", ",\n")
-  }
-
-  if (propertyName?.toLowerCase().endsWith("id")) {
-    return value
-  }
-
-  const parsed = Number.parseInt(value, 10)
-  if (/^\d+$/.test(value) && parsed >= 1024) {
-    return formatBytes(parsed)
-  }
-
-  return value
 }
 
 function SnapshotsPanel({
@@ -448,7 +430,7 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
               {formatBytes(pool.size_bytes)} total pool size
             </CardDescription>
             <CardAction>
-              <PanelHelp source="zpool list -H -o name,size,alloc,free,health">
+              <PanelHelp source="zpool list -H -p -o name,size,alloc,free,health">
                 Pool size, allocated space, free space, and health reported by
                 OpenZFS. The chart&apos;s percentage is allocated divided by
                 allocated plus free.
@@ -758,7 +740,7 @@ function DatasetView({
                           {property.property}
                         </TableCell>
                         <TableCell className="break-words whitespace-pre-wrap">
-                          {displayPropertyValue(
+                          {formatPropertyValue(
                             property.value,
                             property.property
                           )}
@@ -789,38 +771,33 @@ function LoadingView() {
   )
 }
 
-function initialSelection(): Selection {
-  const parameters = new URLSearchParams(window.location.search)
-  const dataset = parameters.get("dataset")
-  if (dataset) {
-    return { kind: "dataset", id: dataset }
-  }
-
-  const pool = parameters.get("pool")
-  if (pool) {
-    return { kind: "pool", id: pool }
-  }
-
-  return { kind: "overview" }
-}
-
-export function App() {
+function App() {
   const [status, setStatus] = React.useState<StatusPayload | null>(null)
   const [error, setError] = React.useState<string | null>(null)
-  const [selection, setSelection] = React.useState<Selection>(initialSelection)
+  const [selection, setSelection] = React.useState<Selection>(() =>
+    selectionFromSearch(window.location.search)
+  )
 
   React.useEffect(() => {
     let active = true
+    let controller: AbortController | null = null
 
     const load = async () => {
+      controller?.abort()
+      controller = new AbortController()
       try {
-        const nextStatus = await fetchStatus()
+        const nextStatus = await fetchStatus(controller.signal)
         if (active) {
           setStatus(nextStatus)
           setError(null)
         }
       } catch (nextError) {
-        if (active) {
+        if (
+          active &&
+          !(
+            nextError instanceof DOMException && nextError.name === "AbortError"
+          )
+        ) {
           setError(String(nextError))
         }
       }
@@ -831,8 +808,23 @@ export function App() {
 
     return () => {
       active = false
+      controller?.abort()
       window.clearInterval(interval)
     }
+  }, [])
+
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setSelection(selectionFromSearch(window.location.search))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  const navigate = React.useCallback((nextSelection: Selection) => {
+    setSelection(nextSelection)
+    const search = searchForSelection(nextSelection)
+    window.history.pushState(null, "", `${window.location.pathname}${search}`)
   }, [])
 
   const title =
@@ -840,9 +832,11 @@ export function App() {
       ? "Overview"
       : selection.kind === "raw"
         ? "Raw command output"
-        : selection.kind === "pool"
-          ? selection.id
-          : selection.id
+        : selection.id
+
+  React.useEffect(() => {
+    document.title = `${title} · nazboard`
+  }, [title])
 
   const selectedPool =
     selection.kind === "pool" && status
@@ -863,11 +857,7 @@ export function App() {
 
   return (
     <SidebarProvider>
-      <AppSidebar
-        status={status}
-        selection={selection}
-        onNavigate={setSelection}
-      />
+      <AppSidebar status={status} selection={selection} onNavigate={navigate} />
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-3 px-4">
           <SidebarTrigger />

@@ -46,7 +46,6 @@ function DatasetTree({
             isActive={
               selection.kind === "dataset" && selection.id === dataset.path
             }
-            render={<button type="button" />}
             onClick={() => onNavigate({ kind: "dataset", id: dataset.path })}
           >
             <DatabaseIcon />
@@ -72,7 +71,7 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   return (
-    <Sidebar collapsible="offcanvas" {...props}>
+    <Sidebar {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -89,7 +88,6 @@ export function AppSidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  tooltip="Overview"
                   isActive={selection.kind === "overview"}
                   onClick={() => onNavigate({ kind: "overview" })}
                 >
@@ -107,7 +105,6 @@ export function AppSidebar({
               {status?.pools.map((pool) => (
                 <SidebarMenuItem key={pool.name}>
                   <SidebarMenuButton
-                    tooltip={pool.name}
                     isActive={
                       selection.kind === "pool" && selection.id === pool.name
                     }
@@ -132,7 +129,6 @@ export function AppSidebar({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  tooltip="Raw command output"
                   isActive={selection.kind === "raw"}
                   onClick={() => onNavigate({ kind: "raw" })}
                 >

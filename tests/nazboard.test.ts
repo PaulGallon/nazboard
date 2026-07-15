@@ -9,15 +9,17 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { describe, it } from "node:test"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
 import {
-  CACHE_DIR_ENV,
   FIXTURE_DIR_ENV,
   attachDatasetsToPools,
+  classifyOverall,
   classifyUsage,
   getStatus,
+  handleRequest,
   nestDatasets,
   parseDatasets,
   parseZfsProperties,
@@ -27,8 +29,8 @@ import {
   parseZfsSize,
   readFixture,
   runCommand,
-  type CommandResult,
 } from "../server/nazboard.js"
+import type { CommandResult } from "../shared/status.js"
 
 const root = process.cwd()
 const fixtureDir = join(root, "tests")
@@ -64,6 +66,29 @@ function commandResult(title: string, stdout: string): CommandResult {
   }
 }
 
+async function requestApp(method: string, path: string) {
+  let body = ""
+  let headers: Record<string, string | number> = {}
+  let statusCode = 0
+  const request = { method, url: path } as IncomingMessage
+  const response = {
+    writeHead(nextStatusCode: number, nextHeaders: typeof headers) {
+      statusCode = nextStatusCode
+      headers = nextHeaders
+      return this
+    },
+    end(nextBody?: string | Buffer) {
+      body = Buffer.isBuffer(nextBody)
+        ? nextBody.toString("utf8")
+        : (nextBody ?? "")
+      return this
+    },
+  } as unknown as ServerResponse
+
+  await handleRequest(request, response)
+  return { body, headers, statusCode }
+}
+
 describe("fixture mode", () => {
   it("loads fixed command output from fixture files", async () => {
     const result = await readFixture(
@@ -93,7 +118,7 @@ describe("test data generator", () => {
 
     const expected = new Map([
       ["zpool_status_x.txt", "status -x\n"],
-      ["zpool_list.txt", "list -H -o name,size,alloc,free,health\n"],
+      ["zpool_list.txt", "list -H -p -o name,size,alloc,free,health\n"],
       ["zpool_status.txt", "status\n"],
       [
         "zfs_list.txt",
@@ -195,13 +220,15 @@ describe("ZFS parsing", () => {
     assert.equal(parseZfsSize("1.5T"), 1.5 * 1024 ** 4)
     assert.equal(parseZfsSize("-"), null)
     assert.equal(parseZfsSize("nope"), null)
+    assert.equal(parseZfsSize("12GiB"), null)
+    assert.equal(parseZfsSize("12garbage"), null)
   })
 
   it("parses pool list rows", () => {
     const pools = parsePools([
       commandResult(
         "zpool list",
-        "tank\t10T\t4T\t6T\tONLINE\nbackup 8T 7T 1T DEGRADED"
+        "tank\t10T\t4T\t6T\tONLINE\nbackup\t8T\t7T\t1T\tDEGRADED"
       ),
     ])
 
@@ -217,11 +244,11 @@ describe("ZFS parsing", () => {
       commandResult(
         "zfs list",
         [
-          "NAME USED AVAIL REFER MOUNTPOINT",
-          "tank 50G 50G 10G /tank",
-          "tank/home 90G 10G 90G /tank/home",
-          "tank/home/photos 20G 80G 20G /tank/home/photos",
-          "backup 1T 3T 1T /backup",
+          "NAME\tUSED\tAVAIL\tREFER\tMOUNTPOINT",
+          "tank\t50G\t50G\t10G\t/tank",
+          "tank/home\t90G\t10G\t90G\t/tank/home",
+          "tank/home/photos\t20G\t80G\t20G\t/tank/home/photos",
+          "backup\t1T\t3T\t1T\t/backup",
         ].join("\n")
       ),
     ])
@@ -285,27 +312,31 @@ describe("ZFS parsing", () => {
           "      sdb     DEGRADED     1     0     0",
           "  special",
           "    nvme0n1   ONLINE       0     0     0",
+          "  spares",
+          "    sdc       AVAIL",
           "",
           "errors: No known data errors",
         ].join("\n")
       ),
     ])
 
-    assert.equal(topologies[0].vdevs.length, 2)
+    assert.equal(topologies[0].vdevs.length, 3)
     assert.equal(topologies[0].vdevs[0].type, "mirror")
     assert.equal(topologies[0].vdevs[0].disks[1].state, "DEGRADED")
     assert.equal(topologies[0].vdevs[1].class_name, "special")
     assert.equal(topologies[0].vdevs[1].disks[0].name, "nvme0n1")
+    assert.equal(topologies[0].vdevs[2].class_name, "spare")
+    assert.equal(topologies[0].vdevs[2].state, "AVAIL")
   })
 
   it("attaches dataset roots to their pools", () => {
     const pools = parsePools([
-      commandResult("zpool list", "tank 10T 4T 6T ONLINE"),
+      commandResult("zpool list", "tank\t10T\t4T\t6T\tONLINE"),
     ])
     const datasets = parseDatasets([
       commandResult(
         "zfs list",
-        "NAME USED AVAIL REFER MOUNTPOINT\ntank 4T 6T 4T /tank"
+        "NAME\tUSED\tAVAIL\tREFER\tMOUNTPOINT\ntank\t4T\t6T\t4T\t/tank"
       ),
     ])
 
@@ -320,6 +351,22 @@ describe("ZFS parsing", () => {
     assert.equal(classifyUsage(75), "warn")
     assert.equal(classifyUsage(84.9), "warn")
     assert.equal(classifyUsage(85), "error")
+  })
+
+  it("reports incomplete command data as an overall error", () => {
+    const healthy = commandResult(
+      "ZFS health summary",
+      "all pools are healthy\n"
+    )
+    const failed = {
+      ...commandResult("zfs list", ""),
+      returncode: 1,
+    }
+
+    assert.deepEqual(classifyOverall([healthy, failed]), {
+      state: "error",
+      message: "Unable to read complete ZFS status",
+    })
   })
 })
 
@@ -365,11 +412,10 @@ describe("status payload", () => {
 })
 
 describe("command cache", () => {
-  it("reuses command output from disk for one minute", async (t) => {
+  it("coalesces concurrent runs and reuses output for one minute", async (t) => {
     const temporaryDirectory = await mkdtemp(join(temporaryRoot, "nazboard-"))
     t.after(() => rm(temporaryDirectory, { recursive: true, force: true }))
     const binDirectory = await fakeZfsCommands(temporaryDirectory)
-    const cacheDirectory = join(temporaryDirectory, "cache")
     const counter = join(temporaryDirectory, "counter")
     await writeFile(
       join(binDirectory, "zpool"),
@@ -384,24 +430,57 @@ describe("command cache", () => {
     await chmod(join(binDirectory, "zpool"), 0o755)
 
     const previousPath = process.env.PATH
-    const previousCacheDirectory = process.env[CACHE_DIR_ENV]
     process.env.PATH = `${binDirectory}:${process.env.PATH ?? ""}`
-    process.env[CACHE_DIR_ENV] = cacheDirectory
 
     try {
-      const first = await runCommand("cache test", ["zpool", "status", "-x"])
-      const second = await runCommand("cache test", ["zpool", "status", "-x"])
+      const [first, second] = await Promise.all([
+        runCommand("cache test", ["zpool", "status", "-x"]),
+        runCommand("cache test", ["zpool", "status", "-x"]),
+      ])
+      const third = await runCommand("cache test", ["zpool", "status", "-x"])
 
       assert.equal(first.stdout, "run-1\n")
       assert.equal(second.stdout, "run-1\n")
+      assert.equal(third.stdout, "run-1\n")
       assert.equal(await readFile(counter, "utf8"), "1")
     } finally {
       process.env.PATH = previousPath
-      if (previousCacheDirectory === undefined) {
-        delete process.env[CACHE_DIR_ENV]
-      } else {
-        process.env[CACHE_DIR_ENV] = previousCacheDirectory
-      }
     }
+  })
+})
+
+describe("HTTP server", () => {
+  it("sets defensive headers on health responses", async () => {
+    const response = await requestApp("GET", "/healthz")
+
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.body, "ok\n")
+    assert.match(
+      String(response.headers["Content-Security-Policy"] ?? ""),
+      /default-src/
+    )
+    assert.equal(response.headers["X-Content-Type-Options"], "nosniff")
+    assert.equal(response.headers["X-Frame-Options"], "DENY")
+  })
+
+  it("rejects unsupported methods with an Allow header", async () => {
+    const response = await requestApp("POST", "/healthz")
+
+    assert.equal(response.statusCode, 405)
+    assert.equal(response.headers.Allow, "GET")
+  })
+
+  it("rejects malformed encoded paths without exposing an exception", async () => {
+    const response = await requestApp("GET", "/%E0%A4%A")
+
+    assert.equal(response.statusCode, 400)
+    assert.equal(response.body, "bad request\n")
+  })
+
+  it("does not serve encoded paths outside the static root", async () => {
+    const response = await requestApp("GET", "/%2e%2e%2fpackage.json")
+
+    assert.equal(response.statusCode, 404)
+    assert.equal(response.body, "not found\n")
   })
 })

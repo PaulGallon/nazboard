@@ -1,88 +1,20 @@
-export type State = "ok" | "warn" | "error"
+import type {
+  DatasetStatus,
+  State,
+  StatusPayload,
+} from "../../shared/status.js"
 
-export type Issue = {
-  severity: State
-  scope: "overall" | "pool" | "vdev" | "disk" | "dataset" | "command"
-  name: string
-  message: string
-}
-
-export type CommandResult = {
-  title: string
-  command: string[]
-  returncode: number | null
-  stdout: string
-  stderr: string
-  error: string | null
-}
-
-export type DatasetStatus = {
-  name: string
-  path: string
-  used_bytes: number
-  available_bytes: number
-  refer_bytes: number | null
-  snapshot_used_bytes: number
-  mountpoint: string
-  used_percent: number
-  state: State
-  properties: DatasetProperty[]
-  snapshots: SnapshotStatus[]
-  children: DatasetStatus[]
-}
-
-export type DatasetProperty = {
-  property: string
-  value: string
-  source: string
-}
-
-export type SnapshotStatus = {
-  name: string
-  path: string
-  dataset_path: string
-  used_bytes: number
-  refer_bytes: number | null
-  created_at: string | null
-  properties: DatasetProperty[]
-}
-
-export type DiskStatus = {
-  name: string
-  state: string
-  read_errors: number
-  write_errors: number
-  checksum_errors: number
-}
-
-export type VdevStatus = DiskStatus & {
-  type: string
-  class_name: string
-  disks: DiskStatus[]
-}
-
-export type PoolStatus = {
-  name: string
-  size_bytes: number
-  allocated_bytes: number
-  free_bytes: number
-  health: string
-  used_percent: number
-  snapshot_used_bytes: number
-  vdevs: VdevStatus[]
-  datasets: DatasetStatus[]
-}
-
-export type StatusPayload = {
-  generated_at: string
-  overall: {
-    state: State
-    message: string
-  }
-  issues: Issue[]
-  pools: PoolStatus[]
-  commands: CommandResult[]
-}
+export type {
+  CommandResult,
+  DatasetProperty,
+  DatasetStatus,
+  DiskStatus,
+  Issue,
+  PoolStatus,
+  SnapshotStatus,
+  State,
+  StatusPayload,
+} from "../../shared/status.js"
 
 export type Selection =
   | { kind: "overview" }
@@ -90,13 +22,65 @@ export type Selection =
   | { kind: "pool"; id: string }
   | { kind: "dataset"; id: string }
 
-export async function fetchStatus() {
-  const response = await fetch("/api/status", { cache: "no-store" })
+const BYTE_VALUE_PROPERTIES = new Set([
+  "available",
+  "logicalreferenced",
+  "logicalused",
+  "quota",
+  "recordsize",
+  "referenced",
+  "refquota",
+  "refreservation",
+  "reservation",
+  "special_small_blocks",
+  "used",
+  "usedbychildren",
+  "usedbydataset",
+  "usedbyrefreservation",
+  "usedbysnapshots",
+  "volblocksize",
+  "volsize",
+  "written",
+])
+
+export async function fetchStatus(signal?: AbortSignal) {
+  const response = await fetch("/api/status", { cache: "no-store", signal })
   if (!response.ok) {
     throw new Error(`Status request failed with ${response.status}`)
   }
 
   return (await response.json()) as StatusPayload
+}
+
+export function selectionFromSearch(search: string): Selection {
+  const parameters = new URLSearchParams(search)
+  const dataset = parameters.get("dataset")
+  if (dataset) {
+    return { kind: "dataset", id: dataset }
+  }
+
+  const pool = parameters.get("pool")
+  if (pool) {
+    return { kind: "pool", id: pool }
+  }
+
+  return parameters.get("view") === "raw"
+    ? { kind: "raw" }
+    : { kind: "overview" }
+}
+
+export function searchForSelection(selection: Selection) {
+  const parameters = new URLSearchParams()
+  if (selection.kind === "dataset") {
+    parameters.set("dataset", selection.id)
+  } else if (selection.kind === "pool") {
+    parameters.set("pool", selection.id)
+  } else if (selection.kind === "raw") {
+    parameters.set("view", "raw")
+  }
+
+  const search = parameters.toString()
+  return search ? `?${search}` : ""
 }
 
 export function flattenDatasets(datasets: DatasetStatus[]): DatasetStatus[] {
@@ -128,6 +112,26 @@ export function formatBytes(bytes: number | null) {
 
   const precision = value >= 10 || unitIndex === 0 ? 0 : 1
   return `${value.toFixed(precision)} ${units[unitIndex]}`
+}
+
+export function formatPropertyValue(value: string, propertyName: string) {
+  if (value === "" || value === "-") {
+    return "-"
+  }
+
+  if (propertyName === "sharenfs") {
+    return value.replaceAll(",", ",\n")
+  }
+
+  const isByteValue =
+    BYTE_VALUE_PROPERTIES.has(propertyName) ||
+    propertyName.startsWith("written@")
+  if (!isByteValue || !/^\d+$/.test(value)) {
+    return value
+  }
+
+  const bytes = Number(value)
+  return Number.isFinite(bytes) ? formatBytes(bytes) : value
 }
 
 export function stateLabel(state: State) {

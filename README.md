@@ -1,8 +1,11 @@
 # nazboard
 
-nazboard is a lightweight, read-only web dashboard for at-a-glance ZFS pool and dataset status.
+nazboard is a lightweight, read-only web dashboard for at-a-glance ZFS pool,
+dataset, snapshot, and device status.
 
-It serves a Vite React UI built with shadcn/ui and a small TypeScript HTTP server on port `8080`. The server runs fixed `zpool`/`zfs` commands with Node built-ins and exposes status as JSON.
+It serves a Vite React interface and JSON API from a small TypeScript Node.js
+HTTP server. The server uses Node built-ins, runs six fixed OpenZFS commands,
+and never accepts command arguments from the browser.
 
 ## Screenshots
 
@@ -18,11 +21,10 @@ It serves a Vite React UI built with shadcn/ui and a small TypeScript HTTP serve
 
 ![nazboard dataset details](docs/screenshot-dataset.png)
 
-## ZFS access caveat
+## Run with Docker
 
-nazboard reads ZFS status from the host kernel via `zpool` and `zfs`. The container image includes `zfsutils-linux`, but the host still needs working ZFS kernel support and the container must be able to access `/dev/zfs`.
-
-## Local Docker usage
+The host must have working ZFS kernel support. The image includes
+`zfsutils-linux`, but it still needs access to the host's `/dev/zfs` device.
 
 Build the image:
 
@@ -30,129 +32,163 @@ Build the image:
 docker build -t nazboard:dev .
 ```
 
-Run on a ZFS host:
+Run it on a ZFS host with a read-only root filesystem and no ambient Linux
+capabilities:
 
 ```sh
 docker run --rm \
-  -p 8080:8080 \
+  --name nazboard \
+  -p 127.0.0.1:8080:8080 \
   --device /dev/zfs \
   --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 100 \
   nazboard:dev
 ```
 
-Open <http://localhost:8080>. Health check endpoint: <http://localhost:8080/healthz>.
+Open <http://localhost:8080>. The image includes a health check backed by
+`GET /healthz`.
 
-## API
+The process runs as UID/GID `10001`. Device permissions differ across hosts;
+some ZFS/container combinations may require adjusted `/dev/zfs` ownership or
+more privileged container settings. Add privileges only when the host requires
+them. To expose the dashboard beyond the host, change the published address and
+put authentication and TLS at a trusted reverse proxy.
 
-`GET /api/status` returns the current read-only ZFS status:
+## How it works
 
-- `overall`: health state and message
-- `issues`: warnings and errors across commands, pools, and datasets
-- `pools`: pool space usage, vdev/disk topology, nested dataset trees, and snapshots
-- `commands`: diagnostic output from the fixed ZFS commands
+`GET /api/status` returns:
 
-Snapshot data comes from dataset `usedbysnapshots` totals, an exact,
-tab-separated snapshot list containing `name`, `used`, `refer`, and `creation`,
-and the consolidated property output. The dashboard uses these fixed commands:
+- `overall`: complete status availability and pool health
+- `issues`: command, pool, vdev, disk, and dataset warnings or errors
+- `pools`: capacity, topology, nested datasets, properties, and snapshots
+- `commands`: the fixed commands and their unmodified text output
+
+The server runs these commands with `child_process.execFile` and fixed argument
+arrays:
 
 ```sh
+zpool status -x
+zpool list -H -p -o name,size,alloc,free,health
+zpool status
 zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots
 zfs list -H -p -t snapshot -o name,used,refer,creation
 zfs get -H -p -t filesystem,volume,snapshot -o name,property,value,source all
 ```
 
-The `zfs get` command omits dataset operands so OpenZFS returns every matching
-dataset and snapshot in one invocation. nazboard groups those rows by the
-`name` column before attaching properties to the corresponding objects.
+Successful and failed command results are cached in memory for one minute, and
+concurrent requests share the same in-flight command executions. Nothing is
+written to disk. Each command has a five-second timeout and a bounded output
+buffer.
 
 OpenZFS defines a snapshot's `used` value as space unique to that snapshot.
-Because blocks may be shared by snapshots, the dashboard uses
-`usedbysnapshots` for the aggregate space that all snapshots of a dataset hold.
+Because snapshots can share blocks, nazboard uses each dataset's
+`usedbysnapshots` value for the aggregate space held by all of its snapshots.
+The `zfs get` call returns all matching objects in one invocation; nazboard
+groups the tab-separated rows by their `name` column.
 
-## Deployment beyond local Docker
+The frontend and backend share one TypeScript definition for the JSON contract.
+Command output is serialized as JSON and rendered by React as text, never as
+HTML.
 
-If you run nazboard under an external orchestrator, provide equivalent container settings yourself: expose port `8080`, keep the filesystem read-only where possible, run as a non-root user, and pass through `/dev/zfs` so the bundled `zpool` and `zfs` tools can read host ZFS status. Some environments may require privileged container settings for ZFS device access.
+## Configuration
 
-## Security notes
+The server supports these environment variables:
 
-- nazboard is read-only and exposes no forms or ZFS control endpoints.
-- The web UI does not send pool or dataset identifiers to the server for command execution.
-- Command execution uses fixed argument lists with `execFile`.
-- Command output is returned as JSON and rendered by React as text.
-- The container runs as UID/GID `10001` and supports a read-only root filesystem.
-- Restrict network access to trusted administrators; nazboard does not implement authentication.
+| Variable               | Default                    | Purpose                                                        |
+| ---------------------- | -------------------------- | -------------------------------------------------------------- |
+| `PORT`                 | `8080`                     | HTTP listen port, from 1 to 65535                              |
+| `NAZBOARD_DIST_DIR`    | `<working directory>/dist` | Static frontend directory                                      |
+| `NAZBOARD_FIXTURE_DIR` | unset                      | Read command fixtures from a directory instead of invoking ZFS |
+
+`NAZBOARD_FIXTURE_DIR` is intended for development and screenshots. Do not set
+it in a real deployment.
+
+## Security model
+
+nazboard is intentionally small and read-only, but its status data can still be
+sensitive:
+
+- It exposes raw command output, dataset names, device identifiers, mountpoints,
+  and every property returned by `zfs get all`.
+- It implements no authentication, authorization, or TLS. Restrict it to trusted
+  administrators or place it behind controls that provide them.
+- It exposes no ZFS write/control endpoint and accepts no browser input for
+  command execution.
+- It uses fixed `execFile` argument lists rather than a shell.
+- Responses include a restrictive content security policy, clickjacking,
+  MIME-sniffing, referrer, cross-origin, and permissions-policy headers.
+- The container runs as a fixed non-root user and supports a read-only root
+  filesystem.
+
+The Node base image and GitHub Actions are pinned to immutable digests or commit
+references. The publish workflow uses least-privilege job permissions, CI
+gating, dependency auditing, build caching, and BuildKit provenance and SBOM
+attestations. Dependabot tracks npm, GitHub Actions, and Docker updates.
 
 ## Development
 
-Install dependencies:
+Node.js 22 or later and npm are required.
+
+Install dependencies and run the complete local quality gate:
 
 ```sh
 npm ci
+npm run check
 ```
 
-Run tests:
+The quality gate checks formatting and linting, runs the tests, type-checks the
+server, tests, shared contract, and frontend, and produces the production build.
+Individual commands are also available:
 
 ```sh
 npm test
-```
-
-Build the server and UI:
-
-```sh
+npm run lint
+npm run format
 npm run build
 ```
 
-Run locally after building:
-
-```sh
-npm start
-```
-
-Run locally with the redacted example output in `tests/` instead of calling `zpool` or `zfs`:
+Run the built server with the redacted example fixtures:
 
 ```sh
 NAZBOARD_FIXTURE_DIR=tests npm start
 ```
 
-To refresh those fixtures on a machine with ZFS pools, datasets, and snapshots,
-run the shell script directly (Node.js is not required):
+For frontend-only development, run `npm run dev`. The interface refreshes every
+60 seconds. Press `D` to switch between light and dark mode and `Ctrl+B` (or
+`Cmd+B`) to toggle navigation.
+
+### Test fixtures
+
+On a machine with ZFS, refresh the fixture files with:
 
 ```sh
 ./scripts/generate-test-data.sh
 ```
 
-The generator runs the same six fixed, read-only `zpool` and `zfs` commands as
-the server and replaces the corresponding files in `tests/` only after every
-command succeeds. It replaces leaf device paths and serial-based names in both
-`zpool status` outputs with stable `disk-N` placeholders. To capture the files
-elsewhere for review first, pass an output directory:
+The generator captures all six commands into a private staging directory and
+replaces the fixtures only after every command succeeds. It redacts leaf device
+paths and serial-based names from both `zpool status` outputs by default. Pool,
+dataset, mountpoint, and other host-specific values may remain, so review every
+fixture before committing it.
+
+To capture elsewhere first or intentionally retain device names:
 
 ```sh
 ./scripts/generate-test-data.sh --output-dir /tmp/nazboard-test-data
+./scripts/generate-test-data.sh --no-redact-device-names
 ```
 
-Developers with Node.js installed can also use `npm run generate:test-data`.
-Pass `--no-redact-device-names` only when the original device identifiers are
-intentionally required.
+To regenerate the checked-in screenshots after a build, run
+`./scripts/capture-screenshots.sh`; it requires `curl` and Chrome or Chromium.
 
-Review and redact pool, dataset, and other host-specific names before committing
-generated data from a real system.
+## Publishing
 
-For frontend-only development, run:
-
-```sh
-npm run dev
-```
-
-## Release and publishing
-
-The GitHub Actions workflow in `.github/workflows/publish.yml` publishes container images to:
-
-```text
-ghcr.io/<owner>/nazboard
-```
-
-It runs on pushes to `main` and tags matching `v*.*.*`. Image tags include branch tags, SHA tags, semantic version tags, and `latest` for the default branch.
+`.github/workflows/publish.yml` runs the complete quality gate for pull requests
+and relevant pushes. After a successful push to `main` or a `v*.*.*` tag, it
+publishes the container to `ghcr.io/<owner>/nazboard` with branch, commit,
+semantic-version, and `latest` tags as applicable.
 
 ## License
 

@@ -1,12 +1,116 @@
-import { Label, Pie, PieChart } from "recharts"
-
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart"
 import { formatBytes, type DatasetStatus } from "@/lib/status"
+
+type DonutSegment = {
+  color: string
+  label: string
+  value: number
+}
+
+type DonutChartProps = {
+  caption: string
+  label: string
+  segments: DonutSegment[]
+  total: number
+  value: string
+}
+
+const CHART_RADIUS = 40
+const CHART_CIRCUMFERENCE = 2 * Math.PI * CHART_RADIUS
+
+function DonutChart({
+  caption,
+  label,
+  segments,
+  total,
+  value,
+}: DonutChartProps) {
+  const safeTotal = Math.max(total, 0)
+  const chartSegments = segments.reduce<{
+    consumed: number
+    items: Array<DonutSegment & { length: number; offset: number }>
+  }>(
+    (result, segment) => {
+      const available = Math.max(safeTotal - result.consumed, 0)
+      const segmentValue = Math.min(Math.max(segment.value, 0), available)
+      const length =
+        safeTotal > 0 ? (segmentValue / safeTotal) * CHART_CIRCUMFERENCE : 0
+      const offset =
+        safeTotal > 0 ? (result.consumed / safeTotal) * CHART_CIRCUMFERENCE : 0
+
+      return {
+        consumed: result.consumed + segmentValue,
+        items:
+          length > 0
+            ? [...result.items, { ...segment, length, offset }]
+            : result.items,
+      }
+    },
+    { consumed: 0, items: [] }
+  ).items
+
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      className="mx-auto aspect-square w-full max-w-80"
+      role="img"
+      aria-label={label}
+    >
+      <title>{label}</title>
+      <circle
+        cx="50"
+        cy="50"
+        r={CHART_RADIUS}
+        fill="none"
+        stroke="var(--muted)"
+        strokeWidth="12"
+      />
+      {chartSegments.map((segment) => (
+        <circle
+          key={segment.label}
+          cx="50"
+          cy="50"
+          r={CHART_RADIUS}
+          fill="none"
+          stroke={segment.color}
+          strokeWidth="12"
+          strokeDasharray={`${segment.length} ${CHART_CIRCUMFERENCE - segment.length}`}
+          strokeDashoffset={-segment.offset}
+          transform="rotate(-90 50 50)"
+        >
+          <title>
+            {segment.label}: {formatBytes(segment.value)}
+          </title>
+        </circle>
+      ))}
+      <text
+        x="50"
+        y="47"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        className="fill-foreground font-mono text-[12px] font-semibold"
+      >
+        {value}
+      </text>
+      <text
+        x="50"
+        y="59"
+        textAnchor="middle"
+        dominantBaseline="middle"
+        className="fill-muted-foreground text-[5px]"
+      >
+        {caption}
+      </text>
+    </svg>
+  )
+}
+
+function LegendSwatch({ color }: { color: string }) {
+  return (
+    <svg className="size-2.5 shrink-0" viewBox="0 0 10 10" aria-hidden="true">
+      <rect width="10" height="10" rx="2" fill={color} />
+    </svg>
+  )
+}
 
 type UsageDonutProps = {
   usedBytes: number
@@ -14,112 +118,42 @@ type UsageDonutProps = {
   percent: number
 }
 
-const chartConfig = {
-  used: {
-    label: "Used",
-    color: "var(--chart-3)",
-  },
-  available: {
-    label: "Available",
-    color: "var(--chart-1)",
-  },
-} satisfies ChartConfig
-
-const chartLabels: Record<string, string> = {
-  used: "Used",
-  available: "Available",
-}
-
 export function UsageDonut({
   usedBytes,
   availableBytes,
   percent,
 }: UsageDonutProps) {
-  const chartData = [
-    { name: "used", value: usedBytes, fill: "var(--color-used)" },
+  const segments: DonutSegment[] = [
+    { label: "Used", value: usedBytes, color: "var(--chart-3)" },
     {
-      name: "available",
+      label: "Available",
       value: availableBytes,
-      fill: "var(--color-available)",
+      color: "var(--chart-1)",
     },
   ]
 
   return (
     <div className="flex flex-col gap-3">
-      <ChartContainer
-        config={chartConfig}
-        className="mx-auto aspect-square max-h-80 min-h-64"
-      >
-        <PieChart accessibilityLayer>
-          <ChartTooltip
-            content={
-              <ChartTooltipContent
-                hideLabel
-                nameKey="name"
-                formatter={(value, name) => (
-                  <div className="flex min-w-36 items-center justify-between gap-4">
-                    <span className="text-muted-foreground">
-                      {chartLabels[String(name)]}
-                    </span>
-                    <span className="font-mono font-medium text-foreground">
-                      {formatBytes(Number(value))}
-                    </span>
-                  </div>
-                )}
-              />
-            }
-          />
-          <Pie
-            data={chartData}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={76}
-            outerRadius={108}
-            strokeWidth={6}
-          >
-            <Label
-              content={({ viewBox }) => {
-                if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) {
-                  return null
-                }
-
-                return (
-                  <text
-                    x={viewBox.cx}
-                    y={viewBox.cy}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                  >
-                    <tspan
-                      x={viewBox.cx}
-                      y={viewBox.cy}
-                      className="fill-foreground font-mono text-3xl font-semibold"
-                    >
-                      {percent.toFixed(0)}%
-                    </tspan>
-                    <tspan
-                      x={viewBox.cx}
-                      y={(viewBox.cy ?? 0) + 24}
-                      className="fill-muted-foreground text-xs"
-                    >
-                      used
-                    </tspan>
-                  </text>
-                )
-              }}
-            />
-          </Pie>
-        </PieChart>
-      </ChartContainer>
+      <DonutChart
+        caption="used"
+        label={`${percent.toFixed(0)}% of pool space used`}
+        segments={segments}
+        total={usedBytes + availableBytes}
+        value={`${percent.toFixed(0)}%`}
+      />
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="flex flex-col gap-1 rounded-md border p-3">
-          <span className="text-muted-foreground">Used</span>
-          <strong>{formatBytes(usedBytes)}</strong>
-        </div>
-        <div className="flex flex-col gap-1 rounded-md border p-3">
-          <span className="text-muted-foreground">Available</span>
-          <strong>{formatBytes(availableBytes)}</strong>
-        </div>
+        {segments.map((segment) => (
+          <div
+            key={segment.label}
+            className="flex flex-col gap-1 rounded-md border p-3"
+          >
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <LegendSwatch color={segment.color} />
+              {segment.label}
+            </span>
+            <strong>{formatBytes(segment.value)}</strong>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -130,7 +164,7 @@ type DatasetUsageDonutProps = {
   poolSizeBytes: number
 }
 
-const datasetColors = [
+const DATASET_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
@@ -148,132 +182,37 @@ export function DatasetUsageDonut({
   )
   const ownUsedBytes = Math.max(dataset.used_bytes - childUsedBytes, 0)
   const segments = [
-    { name: dataset.path, value: ownUsedBytes },
+    { label: dataset.path, value: ownUsedBytes },
     ...dataset.children.map((child) => ({
-      name: child.path,
+      label: child.path,
       value: Math.max(child.used_bytes, 0),
     })),
   ].map((segment, index) => ({
     ...segment,
-    fill: datasetColors[index % datasetColors.length],
+    color: DATASET_COLORS[index % DATASET_COLORS.length],
   }))
   const percent =
     poolSizeBytes > 0 ? (dataset.used_bytes / poolSizeBytes) * 100 : 0
-  const boundedPercent = Math.min(Math.max(percent, 0), 100)
-  const chartConfig = Object.fromEntries(
-    segments.map((segment) => [segment.name, { label: segment.name }])
-  ) satisfies ChartConfig
 
   return (
     <div className="flex flex-col gap-3">
-      <ChartContainer
-        config={chartConfig}
-        className="mx-auto aspect-square max-h-80 min-h-64"
-      >
-        <PieChart accessibilityLayer>
-          <Pie
-            data={[
-              {
-                name: "pool-size",
-                value: Math.max(poolSizeBytes, 0),
-                fill: "var(--muted)",
-                tooltipType: "none" as const,
-              },
-            ]}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={76}
-            outerRadius={108}
-            strokeWidth={0}
-            isAnimationActive={false}
-            tooltipType="none"
-          />
-          <ChartTooltip
-            content={(tooltipProps) => {
-              const visiblePayload = tooltipProps.payload?.filter(
-                (item) => item.type !== "none"
-              )
-              if (!visiblePayload?.length) {
-                return null
-              }
-
-              return (
-                <ChartTooltipContent
-                  active={tooltipProps.active}
-                  payload={visiblePayload}
-                  hideLabel
-                  nameKey="name"
-                  formatter={(value, name) => (
-                    <div className="flex min-w-48 items-center justify-between gap-4">
-                      <span className="max-w-64 truncate text-muted-foreground">
-                        {String(name)}
-                      </span>
-                      <span className="font-mono font-medium text-foreground">
-                        {formatBytes(Number(value))}
-                      </span>
-                    </div>
-                  )}
-                />
-              )
-            }}
-          />
-          <Pie
-            data={segments}
-            dataKey="value"
-            nameKey="name"
-            innerRadius={76}
-            outerRadius={108}
-            strokeWidth={6}
-            startAngle={90}
-            endAngle={90 - (boundedPercent / 100) * 360}
-          >
-            <Label
-              content={({ viewBox }) => {
-                if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) {
-                  return null
-                }
-
-                return (
-                  <text
-                    x={viewBox.cx}
-                    y={viewBox.cy}
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                  >
-                    <tspan
-                      x={viewBox.cx}
-                      y={viewBox.cy}
-                      className="fill-foreground font-mono text-3xl font-semibold"
-                    >
-                      {percent.toFixed(0)}%
-                    </tspan>
-                    <tspan
-                      x={viewBox.cx}
-                      y={(viewBox.cy ?? 0) + 24}
-                      className="fill-muted-foreground text-xs"
-                    >
-                      of pool
-                    </tspan>
-                  </text>
-                )
-              }}
-            />
-          </Pie>
-        </PieChart>
-      </ChartContainer>
+      <DonutChart
+        caption="of pool"
+        label={`${dataset.path} uses ${percent.toFixed(0)}% of its pool`}
+        segments={segments}
+        total={poolSizeBytes}
+        value={`${percent.toFixed(0)}%`}
+      />
       <div className="flex flex-col gap-2 text-sm">
         {segments.map((segment) => (
           <div
-            key={segment.name}
+            key={segment.label}
             className="flex items-center justify-between gap-3 rounded-md border p-3"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="size-2.5 shrink-0 rounded-[2px]"
-                style={{ backgroundColor: segment.fill }}
-              />
-              <span className="truncate" title={segment.name}>
-                {segment.name}
+              <LegendSwatch color={segment.color} />
+              <span className="truncate" title={segment.label}>
+                {segment.label}
               </span>
             </div>
             <strong className="shrink-0">{formatBytes(segment.value)}</strong>
