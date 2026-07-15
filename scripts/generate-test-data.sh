@@ -1,9 +1,10 @@
 #!/bin/sh
 
 set -eu
+export LC_ALL=C
 
-script_directory=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
-repository_root=$(dirname "$script_directory")
+script_directory=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname -- "$script_directory")
 output_directory="$repository_root/tests"
 staging_directory=""
 redact_device_names=1
@@ -70,7 +71,8 @@ staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/nazboard-test-data.XXXXXX")
 
 # Capture everything first so a failed command leaves existing fixtures alone.
 zpool status -x >"$staging_directory/zpool_status_x.raw"
-zpool list -H -o name,size,alloc,free,health >"$staging_directory/zpool_list.txt"
+zpool list -H -p -o name,size,alloc,free,health \
+  >"$staging_directory/zpool_list.txt"
 zpool status >"$staging_directory/zpool_status.raw"
 zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots \
   >"$staging_directory/zfs_list.txt"
@@ -135,7 +137,7 @@ else
   cp "$staging_directory/zpool_status_x.raw" "$staging_directory/zpool_status_x.txt"
 fi
 
-mkdir -p "$output_directory"
+mkdir -p -- "$output_directory"
 
 for filename in \
   zpool_status_x.txt \
@@ -145,7 +147,7 @@ for filename in \
   zfs_snapshots.txt \
   zfs_get_all.txt
 do
-  cp "$staging_directory/$filename" "$output_directory/$filename"
+  cp -- "$staging_directory/$filename" "$output_directory/$filename"
   printf 'Wrote %s/%s\n' "$output_directory" "$filename"
 done
 

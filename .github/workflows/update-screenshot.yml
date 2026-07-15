@@ -1,104 +1,83 @@
-name: Update screenshot
+name: Update screenshots
 
 on:
   push:
     branches: ["main"]
     paths:
       - ".github/workflows/update-screenshot.yml"
-      - "components.json"
       - "index.html"
-      - "public/**"
-      - "server/**"
-      - "src/**"
-      - "tests/**"
       - "package*.json"
+      - "scripts/capture-screenshots.sh"
+      - "server/**"
+      - "shared/**"
+      - "src/**"
+      - "tests/*.txt"
       - "tsconfig*.json"
       - "vite.config.ts"
   pull_request:
     paths:
       - ".github/workflows/update-screenshot.yml"
-      - "components.json"
       - "index.html"
-      - "public/**"
-      - "server/**"
-      - "src/**"
-      - "tests/**"
       - "package*.json"
+      - "scripts/capture-screenshots.sh"
+      - "server/**"
+      - "shared/**"
+      - "src/**"
+      - "tests/*.txt"
       - "tsconfig*.json"
       - "vite.config.ts"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  screenshot:
+  verify:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
       - name: Install dependencies
-        run: npm ci
-      - name: Test
-        run: npm test
-      - name: Build
-        run: npm run build
-      - name: Start fixture server
-        run: |
-          NAZBOARD_FIXTURE_DIR=tests npm start &
-          echo "server_pid=$!" >> "$GITHUB_ENV"
-      - name: Wait for fixture server
-        run: |
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-            if curl --fail --silent --show-error http://127.0.0.1:8080/healthz; then
-              exit 0
-            fi
-            sleep 1
-          done
-          exit 1
+        run: npm ci --ignore-scripts
+      - name: Check and build
+        run: npm run check
       - name: Capture screenshots
-        run: |
-          chrome=""
-          for candidate in google-chrome-stable google-chrome chromium chromium-browser; do
-            if command -v "$candidate" > /dev/null 2>&1; then
-              chrome="$candidate"
-              break
-            fi
-          done
-          test -n "$chrome"
+        run: ./scripts/capture-screenshots.sh
+      - name: Verify screenshots
+        run: git diff --exit-code -- docs/screenshot-*.png
 
-          capture() {
-            "$chrome" \
-              --headless=new \
-              --disable-gpu \
-              --no-sandbox \
-              --hide-scrollbars \
-              --force-dark-mode \
-              --disable-features=WebContentsForceDark \
-              --force-device-scale-factor=1 \
-              --run-all-compositor-stages-before-draw \
-              --virtual-time-budget=10000 \
-              --window-size=1440,400 \
-              --screenshot="$1" \
-              "$2"
-          }
-
-          capture docs/screenshot-overview.png http://127.0.0.1:8080/
-          capture docs/screenshot-pool.png 'http://127.0.0.1:8080/?pool=storage01'
-          capture docs/screenshot-dataset.png 'http://127.0.0.1:8080/?dataset=storage01%2Fbackup'
-      - name: Stop fixture server
-        if: always()
-        run: |
-          if test -n "${server_pid:-}"; then
-            kill "$server_pid" || true
-          fi
+  update:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Check and build
+        run: npm run check
+      - name: Capture screenshots
+        run: ./scripts/capture-screenshots.sh
       - name: Commit screenshots
-        if: github.event_name == 'push'
         run: |
           if git diff --quiet -- docs/screenshot-*.png; then
             echo "The screenshots are already current."

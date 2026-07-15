@@ -1,34 +1,63 @@
 import { execFile } from "node:child_process"
-import { createHash } from "node:crypto"
-import { readFile, mkdir, rename, stat, writeFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http"
-import { tmpdir } from "node:os"
-import { extname, join, normalize, resolve, sep } from "node:path"
+import {
+  extname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+  sep,
+} from "node:path"
 import { fileURLToPath } from "node:url"
 
-export const HOST = "0.0.0.0"
-export const PORT = Number.parseInt(process.env.PORT ?? "8080", 10)
-export const COMMAND_TIMEOUT_MS = 5000
-export const COMMAND_CACHE_TTL_MS = 60_000
-export const CACHE_DIR_ENV = "NAZBOARD_CACHE_DIR"
+import type {
+  CommandResult,
+  DatasetProperty,
+  DatasetStatus,
+  DiskStatus,
+  Issue,
+  PoolStatus,
+  SnapshotStatus,
+  State,
+  StatusPayload,
+  VdevStatus,
+} from "../shared/status.js"
+
+const HOST = "0.0.0.0"
+const COMMAND_TIMEOUT_MS = 5000
+const COMMAND_CACHE_TTL_MS = 60_000
+const COMMAND_MAX_BUFFER_BYTES = 16 * 1024 * 1024
 export const FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
 
-const OBSERVED_AT = Symbol("observedAt")
-
-type State = "ok" | "warn" | "error"
-
-export type CommandResult = {
-  title: string
-  command: string[]
-  returncode: number | null
-  stdout: string
-  stderr: string
-  error: string | null
+function parsePort(value: string) {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(
+      `PORT must be an integer between 1 and 65535; received ${value}`
+    )
+  }
+  const port = Number(value)
+  if (port < 1 || port > 65_535) {
+    throw new Error(
+      `PORT must be an integer between 1 and 65535; received ${value}`
+    )
+  }
+  return port
 }
+
+const PORT = parsePort(process.env.PORT ?? "8080")
+
+const OBSERVED_AT = Symbol("observedAt")
+const commandCache = new Map<
+  string,
+  { observedAt: number; result: ObservedCommandResult }
+>()
+const pendingCommands = new Map<string, Promise<ObservedCommandResult>>()
 
 type ObservedCommandResult = CommandResult & {
   [OBSERVED_AT]?: number
@@ -42,89 +71,17 @@ function withObservedAt(result: CommandResult, observedAt = Date.now()) {
   return result as ObservedCommandResult
 }
 
-export type Issue = {
-  severity: State
-  scope: "overall" | "pool" | "vdev" | "disk" | "dataset" | "command"
-  name: string
-  message: string
-}
-
-export type DatasetStatus = {
-  name: string
-  path: string
-  used_bytes: number
-  available_bytes: number
-  refer_bytes: number | null
-  snapshot_used_bytes: number
-  mountpoint: string
-  used_percent: number
-  state: State
-  properties: DatasetProperty[]
-  snapshots: SnapshotStatus[]
-  children: DatasetStatus[]
-}
-
-export type DatasetProperty = {
-  property: string
-  value: string
-  source: string
-}
-
-export type SnapshotStatus = {
-  name: string
-  path: string
-  dataset_path: string
-  used_bytes: number
-  refer_bytes: number | null
-  created_at: string | null
-  properties: DatasetProperty[]
-}
-
-export type DiskStatus = {
-  name: string
-  state: string
-  read_errors: number
-  write_errors: number
-  checksum_errors: number
-}
-
-export type VdevStatus = DiskStatus & {
-  type: string
-  class_name: string
-  disks: DiskStatus[]
-}
-
-export type PoolTopology = {
+type PoolTopology = {
   pool_name: string
   vdevs: VdevStatus[]
 }
 
-export type PoolStatus = {
-  name: string
-  size_bytes: number
-  allocated_bytes: number
-  free_bytes: number
-  health: string
-  used_percent: number
-  snapshot_used_bytes: number
-  vdevs: VdevStatus[]
-  datasets: DatasetStatus[]
-}
-
-export type StatusPayload = {
-  generated_at: string
-  overall: {
-    state: State
-    message: string
-  }
-  issues: Issue[]
-  pools: PoolStatus[]
-  commands: CommandResult[]
-}
-
 const BASE_COMMANDS: Array<[string, string[]]> = [
   ["ZFS health summary", ["zpool", "status", "-x"]],
-  ["zpool list", ["zpool", "list", "-H", "-o", "name,size,alloc,free,health"]],
+  [
+    "zpool list",
+    ["zpool", "list", "-H", "-p", "-o", "name,size,alloc,free,health"],
+  ],
   ["zpool status", ["zpool", "status"]],
   [
     "zfs list",
@@ -169,7 +126,9 @@ const BASE_COMMANDS: Array<[string, string[]]> = [
 const FIXTURE_FILES = new Map<string, string>([
   [["zpool", "status", "-x"].join("\0"), "zpool_status_x.txt"],
   [
-    ["zpool", "list", "-H", "-o", "name,size,alloc,free,health"].join("\0"),
+    ["zpool", "list", "-H", "-p", "-o", "name,size,alloc,free,health"].join(
+      "\0"
+    ),
     "zpool_list.txt",
   ],
   [["zpool", "status"].join("\0"), "zpool_status.txt"],
@@ -222,6 +181,7 @@ const SIZE_UNITS = new Map<string, number>([
   ["P", 1024 ** 5],
   ["E", 1024 ** 6],
 ])
+const ZFS_SIZE_PATTERN = /^(\d+(?:\.\d+)?)([BKMGTPE])?$/i
 
 const MIME_TYPES = new Map<string, string>([
   [".css", "text/css; charset=utf-8"],
@@ -235,19 +195,23 @@ const MIME_TYPES = new Map<string, string>([
   [".woff2", "font/woff2"],
 ])
 
+const SECURITY_HEADERS = {
+  "Content-Security-Policy":
+    "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+}
+
 function commandKey(command: string[]) {
   return command.join("\0")
 }
 
-function cacheDirectory() {
-  return process.env[CACHE_DIR_ENV] ?? join(tmpdir(), "nazboard-cache")
-}
-
-function cacheFilePath(command: string[]) {
-  const digest = createHash("sha256")
-    .update(commandKey(command))
-    .digest("base64url")
-  return join(cacheDirectory(), `${digest}.json`)
+function commandCacheKey(title: string, command: string[]) {
+  return `${title}\0${commandKey(command)}`
 }
 
 function commandOk(result: CommandResult) {
@@ -297,46 +261,16 @@ export async function readFixture(
   }
 }
 
-async function readCachedCommand(
-  title: string,
-  command: string[]
-): Promise<CommandResult | null> {
-  try {
-    const cachePath = cacheFilePath(command)
-    const [cacheStat, cacheContents] = await Promise.all([
-      stat(cachePath),
-      readFile(cachePath, "utf8"),
-    ])
-    if (Date.now() - cacheStat.mtimeMs > COMMAND_CACHE_TTL_MS) {
-      return null
-    }
-
-    const cached = JSON.parse(cacheContents) as CommandResult
-    if (
-      cached.title === title &&
-      Array.isArray(cached.command) &&
-      commandKey(cached.command) === commandKey(command)
-    ) {
-      return withObservedAt(cached, cacheStat.mtimeMs)
-    }
-  } catch {
+function readCachedCommand(key: string) {
+  const cached = commandCache.get(key)
+  if (!cached) {
     return null
   }
-
-  return null
-}
-
-async function writeCachedCommand(result: CommandResult) {
-  try {
-    const directory = cacheDirectory()
-    await mkdir(directory, { recursive: true })
-    const cachePath = cacheFilePath(result.command)
-    const temporaryPath = `${cachePath}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(temporaryPath, JSON.stringify(result), "utf8")
-    await rename(temporaryPath, cachePath)
-  } catch {
-    // Cache failures should never make the read-only dashboard unavailable.
+  if (Date.now() - cached.observedAt > COMMAND_CACHE_TTL_MS) {
+    commandCache.delete(key)
+    return null
   }
+  return cached.result
 }
 
 export async function runCommand(
@@ -348,30 +282,31 @@ export async function runCommand(
     return readFixture(title, command, fixtureDir)
   }
 
-  const cached = await readCachedCommand(title, command)
+  const key = commandCacheKey(title, command)
+  const cached = readCachedCommand(key)
   if (cached) {
     return cached
   }
 
-  return new Promise((resolveCommand) => {
+  const pending = pendingCommands.get(key)
+  if (pending) {
+    return pending
+  }
+
+  const execution = new Promise<CommandResult>((resolveCommand) => {
     execFile(
       command[0],
       command.slice(1),
       {
         encoding: "utf8",
+        env: { LC_ALL: "C", PATH: process.env.PATH },
+        maxBuffer: COMMAND_MAX_BUFFER_BYTES,
         timeout: COMMAND_TIMEOUT_MS,
         windowsHide: true,
       },
       (error, stdout, stderr) => {
-        const resolveAndCache = (result: CommandResult) => {
-          const observedResult = withObservedAt(result)
-          void writeCachedCommand(result).finally(() =>
-            resolveCommand(observedResult)
-          )
-        }
-
         if (!error) {
-          resolveAndCache({
+          resolveCommand({
             title,
             command,
             returncode: 0,
@@ -383,7 +318,7 @@ export async function runCommand(
         }
 
         if (typeof error.code === "number") {
-          resolveAndCache({
+          resolveCommand({
             title,
             command,
             returncode: error.code,
@@ -394,7 +329,7 @@ export async function runCommand(
           return
         }
 
-        resolveAndCache({
+        resolveCommand({
           title,
           command,
           returncode: null,
@@ -410,6 +345,18 @@ export async function runCommand(
       }
     )
   })
+    .then((result) => {
+      const observedAt = Date.now()
+      const observedResult = withObservedAt(result, observedAt)
+      commandCache.set(key, { observedAt, result: observedResult })
+      return observedResult
+    })
+    .finally(() => {
+      pendingCommands.delete(key)
+    })
+
+  pendingCommands.set(key, execution)
+  return execution
 }
 
 export function parseZfsSize(value: string): number | null {
@@ -418,19 +365,20 @@ export function parseZfsSize(value: string): number | null {
     return null
   }
 
-  const unit = trimmed.at(-1)?.toUpperCase() ?? ""
-  const multiplier = SIZE_UNITS.get(unit)
-  const numberText = multiplier ? trimmed.slice(0, -1) : trimmed
-  const parsed = Number.parseFloat(numberText)
-
-  if (Number.isNaN(parsed)) {
+  const match = trimmed.match(ZFS_SIZE_PATTERN)
+  if (!match) {
     return null
   }
 
-  return parsed * (multiplier ?? 1)
+  const parsed = Number.parseFloat(match[1])
+  const multiplier = match[2]
+    ? (SIZE_UNITS.get(match[2].toUpperCase()) ?? 1)
+    : 1
+  const bytes = parsed * multiplier
+  return Number.isFinite(bytes) ? bytes : null
 }
 
-export function usedPercent(used: number, available: number) {
+function usedPercent(used: number, available: number) {
   const total = used + available
   if (total <= 0) {
     return 0
@@ -452,15 +400,15 @@ export function classifyUsage(percent: number): State {
 export function classifyOverall(
   results: CommandResult[]
 ): StatusPayload["overall"] {
-  const health = results[0]
-  if (!health || health.error) {
+  const health = results.find((result) => result.title === "ZFS health summary")
+  if (!health || !commandOk(health)) {
     return { state: "error", message: "Unable to read ZFS health" }
+  }
+  if (results.some((result) => !commandOk(result))) {
+    return { state: "error", message: "Unable to read complete ZFS status" }
   }
 
   const combined = `${health.stdout}\n${health.stderr}`.toLowerCase()
-  if (health.returncode !== 0) {
-    return { state: "error", message: "ZFS health command failed" }
-  }
   if (combined.includes("all pools are healthy")) {
     return { state: "ok", message: "All pools are healthy" }
   }
@@ -482,7 +430,7 @@ export function parsePools(results: CommandResult[]): PoolStatus[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split(/\s+/)
+      const parts = line.split("\t")
       if (parts.length < 5) {
         return null
       }
@@ -523,7 +471,7 @@ export function parseDatasets(results: CommandResult[]): DatasetStatus[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split(/\s+/, 6)
+      const parts = line.split("\t")
       if (parts.length < 5 || parts[0].toUpperCase() === "NAME") {
         return null
       }
@@ -573,9 +521,7 @@ export function parseZfsProperties(
         continue
       }
 
-      const parts = line.includes("\t")
-        ? line.split("\t")
-        : line.trim().split(/\s+/, 4)
+      const parts = line.split("\t")
       if (parts.length < 4 || parts[0].toUpperCase() === "NAME") {
         continue
       }
@@ -603,7 +549,7 @@ export function parseSnapshots(results: CommandResult[]): SnapshotStatus[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split(/\s+/, 4)
+      const parts = line.split("\t")
       if (parts.length < 4 || parts[0].toUpperCase() === "NAME") {
         return null
       }
@@ -614,16 +560,19 @@ export function parseSnapshots(results: CommandResult[]): SnapshotStatus[] {
         return null
       }
 
-      const creationSeconds = Number.parseInt(parts[3], 10)
+      const creationSeconds = /^\d+$/.test(parts[3])
+        ? Number.parseInt(parts[3], 10)
+        : Number.NaN
+      const creationDate = new Date(creationSeconds * 1000)
       const snapshot: SnapshotStatus = {
         name: parts[0].slice(separator + 1),
         path: parts[0],
         dataset_path: parts[0].slice(0, separator),
         used_bytes: used,
         refer_bytes: parseZfsSize(parts[2]),
-        created_at: Number.isNaN(creationSeconds)
+        created_at: Number.isNaN(creationDate.valueOf())
           ? null
-          : new Date(creationSeconds * 1000).toISOString(),
+          : creationDate.toISOString(),
         properties: [],
       }
       return snapshot
@@ -706,7 +655,7 @@ export function parseVdevs(results: CommandResult[]): PoolTopology[] {
       }
 
       const match = line.match(
-        /^(\s*)(\S+)\s+(\S+)\s+(\d+|-)\s+(\d+|-)\s+(\d+|-)(?:\s+.*)?$/
+        /^(\s*)(\S+)\s+(\S+)(?:\s+(\d+|-)\s+(\d+|-)\s+(\d+|-))?(?:\s+.*)?$/
       )
       if (!match || match[2].toUpperCase() === "NAME") {
         continue
@@ -715,9 +664,9 @@ export function parseVdevs(results: CommandResult[]): PoolTopology[] {
       const node: VdevNode = {
         name: match[2],
         state: match[3],
-        read_errors: Number.parseInt(match[4], 10) || 0,
-        write_errors: Number.parseInt(match[5], 10) || 0,
-        checksum_errors: Number.parseInt(match[6], 10) || 0,
+        read_errors: Number.parseInt(match[4] ?? "", 10) || 0,
+        write_errors: Number.parseInt(match[5] ?? "", 10) || 0,
+        checksum_errors: Number.parseInt(match[6] ?? "", 10) || 0,
         indent: match[1].replaceAll("\t", "        ").length,
         class_name: className,
         children: [],
@@ -805,7 +754,7 @@ export function attachDatasetsToPools(
   }))
 }
 
-export function attachPoolDetails(
+function attachPoolDetails(
   pools: PoolStatus[],
   snapshots: SnapshotStatus[],
   topologies: PoolTopology[],
@@ -851,7 +800,7 @@ export function attachPoolDetails(
   })
 }
 
-export function collectIssues(
+function collectIssues(
   overall: StatusPayload["overall"],
   pools: PoolStatus[],
   commands: CommandResult[]
@@ -902,7 +851,7 @@ export function collectIssues(
       })
     }
     for (const vdev of pool.vdevs) {
-      if (vdev.state.toUpperCase() !== "ONLINE") {
+      if (!["ONLINE", "AVAIL"].includes(vdev.state.toUpperCase())) {
         issues.push({
           severity: vdev.state.toUpperCase() === "DEGRADED" ? "warn" : "error",
           scope: "vdev",
@@ -913,7 +862,10 @@ export function collectIssues(
       for (const disk of vdev.disks) {
         const errorCount =
           disk.read_errors + disk.write_errors + disk.checksum_errors
-        if (disk.state.toUpperCase() !== "ONLINE" || errorCount > 0) {
+        if (
+          !["ONLINE", "AVAIL"].includes(disk.state.toUpperCase()) ||
+          errorCount > 0
+        ) {
           issues.push({
             severity:
               disk.state.toUpperCase() === "DEGRADED" && errorCount === 0
@@ -969,12 +921,15 @@ function send(
   response: ServerResponse,
   statusCode: number,
   body: string | Buffer,
-  contentType: string
+  contentType: string,
+  headers: Record<string, string> = {}
 ) {
   response.writeHead(statusCode, {
+    ...SECURITY_HEADERS,
     "Content-Type": contentType,
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": "no-store",
+    ...headers,
   })
   response.end(body)
 }
@@ -998,19 +953,33 @@ function distDirectory() {
 
 function staticFilePath(pathname: string) {
   const root = distDirectory()
-  const relative =
+  const requestedPath =
     pathname === "/"
       ? "index.html"
       : decodeURIComponent(pathname).replace(/^\/+/, "")
-  const candidate = normalize(join(root, relative))
-  if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
+  const candidate = normalize(join(root, requestedPath))
+  const relativePath = relative(root, candidate)
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
     return null
   }
   return candidate
 }
 
 async function serveStatic(pathname: string, response: ServerResponse) {
-  const filePath = staticFilePath(pathname)
+  let filePath: string | null
+  try {
+    filePath = staticFilePath(pathname)
+  } catch (error) {
+    if (error instanceof URIError) {
+      send(response, 400, "bad request\n", "text/plain; charset=utf-8")
+      return
+    }
+    throw error
+  }
   if (!filePath) {
     send(response, 404, "not found\n", "text/plain; charset=utf-8")
     return
@@ -1028,7 +997,12 @@ async function serveStatic(pathname: string, response: ServerResponse) {
       response,
       200,
       body,
-      MIME_TYPES.get(extname(filePath)) ?? "application/octet-stream"
+      MIME_TYPES.get(extname(filePath)) ?? "application/octet-stream",
+      {
+        "Cache-Control": pathname.startsWith("/assets/")
+          ? "public, max-age=31536000, immutable"
+          : "no-cache",
+      }
     )
   } catch {
     send(response, 404, "not found\n", "text/plain; charset=utf-8")
@@ -1040,7 +1014,9 @@ export async function handleRequest(
   response: ServerResponse
 ) {
   if (request.method !== "GET") {
-    send(response, 405, "method not allowed\n", "text/plain; charset=utf-8")
+    send(response, 405, "method not allowed\n", "text/plain; charset=utf-8", {
+      Allow: "GET",
+    })
     return
   }
 
@@ -1058,12 +1034,22 @@ export async function handleRequest(
   await serveStatic(url.pathname, response)
 }
 
-export function main() {
-  createServer((request, response) => {
+function createAppServer() {
+  const server = createServer((request, response) => {
     handleRequest(request, response).catch((error: unknown) => {
-      sendJson(response, 500, { error: String(error) })
+      console.error("Request failed", error)
+      sendJson(response, 500, { error: "Internal server error" })
     })
-  }).listen(PORT, HOST, () => {
+  })
+  server.headersTimeout = 10_000
+  server.requestTimeout = 15_000
+  server.keepAliveTimeout = 5_000
+  server.maxRequestsPerSocket = 100
+  return server
+}
+
+function main() {
+  createAppServer().listen(PORT, HOST, () => {
     console.log(`nazboard listening on http://${HOST}:${PORT}`)
   })
 }

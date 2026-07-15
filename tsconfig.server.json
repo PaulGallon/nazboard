@@ -15,5 +15,5 @@
     "rootDir": ".",
     "outDir": "build"
   },
-  "include": ["server/**/*.ts", "tests/**/*.ts"]
+  "include": ["server/**/*.ts", "shared/**/*.ts"]
 }

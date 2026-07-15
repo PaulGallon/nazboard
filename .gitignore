@@ -1,10 +1,6 @@
 build/
 dist/
 node_modules/
-coverage/
 .env
 .DS_Store
 *.local
-*.tsbuildinfo
-__pycache__/
-*.py[cod]
