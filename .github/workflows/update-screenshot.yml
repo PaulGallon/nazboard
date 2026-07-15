@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/update-screenshot.yml"
+      - ".github/workflows/publish-pr-screenshots.yml"
       - "index.html"
       - "package*.json"
       - "scripts/capture-screenshots.sh"
@@ -17,6 +18,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/update-screenshot.yml"
+      - ".github/workflows/publish-pr-screenshots.yml"
       - "index.html"
       - "package*.json"
       - "scripts/capture-screenshots.sh"
@@ -36,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -54,8 +56,18 @@ jobs:
         run: npm run check
       - name: Capture screenshots
         run: ./scripts/capture-screenshots.sh
-      - name: Verify screenshots
-        run: git diff --exit-code -- docs/screenshot-*.png
+      - name: Prepare screenshot preview
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-screenshots"
+          cp docs/screenshot-*.png "$RUNNER_TEMP/pr-screenshots/"
+      - name: Upload screenshot preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-screenshots
+          path: ${{ runner.temp }}/pr-screenshots
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
 
   update:
     if: github.event_name != 'pull_request'

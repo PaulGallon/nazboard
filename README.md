@@ -190,6 +190,10 @@ and relevant pushes. After a successful push to `main` or a `v*.*.*` tag, it
 publishes the container to `ghcr.io/<owner>/nazboard` with branch, commit,
 semantic-version, and `latest` tags as applicable.
 
+Pull requests generate fresh UI screenshots and display them in a single
+automatically updated review comment; timestamp differences never fail the
+pipeline. Pushes to `main` separately refresh the checked-in README screenshots.
+
 ## License
 
 nazboard is released under the MIT License. See [LICENSE](LICENSE).
