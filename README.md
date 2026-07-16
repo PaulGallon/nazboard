@@ -140,6 +140,9 @@ npm run check
 
 The quality gate checks formatting and linting, runs the tests, type-checks the
 server, tests, shared contract, and frontend, and produces the production build.
+The `tsc` binary uses the TypeScript 7 native compiler. The TypeScript 6
+compatibility package remains installed alongside it because `typescript-eslint`
+still requires the compiler's programmatic API.
 Individual commands are also available:
 
 ```sh
