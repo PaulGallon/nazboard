@@ -19,7 +19,7 @@
     "test": "tsc -p tsconfig.test.json && node --test build/tests/*.test.js"
   },
   "dependencies": {
-    "@base-ui/react": "^1.6.0",
+    "@base-ui/react": "^1.7.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/oxanium": "^5.2.8",
     "@tailwindcss/vite": "^4",
