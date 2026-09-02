@@ -85,6 +85,29 @@ describe("SMART disk health", () => {
     )
   })
 
+  it("treats explicitly unsupported SMART and zero temperature as attention, not failure", () => {
+    const disk = parseSmartDisk(
+      { name: "/dev/sdh", type: "scsi", protocol: "SCSI" },
+      result({
+        device: { protocol: "SCSI" },
+        smart_support: { available: false },
+        temperature: { current: 0 },
+      })
+    )
+
+    assert.equal(disk.model, "Disk sdh")
+    assert.equal(disk.temperature_celsius, null)
+    assert.equal(disk.state, "bad")
+    assert.equal(
+      disk.metrics.find((metric) => metric.key === "smart-status")?.value,
+      "Unavailable"
+    )
+    assert.equal(
+      disk.metrics.find((metric) => metric.key === "temperature")?.state,
+      "bad"
+    )
+  })
+
   it("does not run smartctl when disabled", async () => {
     const previous = process.env.NAZBOARD_SMART_ENABLED
     process.env.NAZBOARD_SMART_ENABLED = "false"

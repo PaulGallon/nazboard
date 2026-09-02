@@ -46,6 +46,21 @@ function parseJson(result: CommandResult): JsonObject | null {
   }
 }
 
+function smartctlMessage(document: JsonObject) {
+  const messages = object(document.smartctl)?.messages
+  if (!Array.isArray(messages)) {
+    return null
+  }
+  for (const value of messages) {
+    const message = object(value)
+    const text = string(message?.string)
+    if (text) {
+      return text
+    }
+  }
+  return null
+}
+
 function parseDevices(result: CommandResult): SmartDevice[] {
   const document = parseJson(result)
   const devices = document?.devices
@@ -121,7 +136,7 @@ function temperatureMetric(
       key: "temperature",
       label: "Temperature",
       value: "Unknown",
-      state: "critical",
+      state: "bad",
       detail: "The drive did not report a live temperature.",
     }
   }
@@ -153,18 +168,35 @@ function temperatureMetric(
 
 function overallMetric(document: JsonObject): SmartMetric {
   const passed = object(document.smart_status)?.passed
-  const state: MetricState = passed === true ? "good" : "critical"
+  const supportAvailable = object(document.smart_support)?.available
+  const state: MetricState =
+    passed === true
+      ? "good"
+      : passed === false
+        ? "critical"
+        : supportAvailable === false
+          ? "bad"
+          : "critical"
   return {
     key: "smart-status",
     label: "SMART assessment",
-    value: passed === true ? "Passed" : passed === false ? "Failed" : "Unknown",
+    value:
+      passed === true
+        ? "Passed"
+        : passed === false
+          ? "Failed"
+          : supportAvailable === false
+            ? "Unavailable"
+            : "Unknown",
     state,
     detail:
       passed === true
         ? "The drive's overall SMART self-assessment passed."
         : passed === false
           ? "The drive reports a failed SMART self-assessment."
-          : "The drive did not provide an overall SMART assessment.",
+          : supportAvailable === false
+            ? "This device reports that SMART monitoring is unavailable."
+            : "The drive did not provide an overall SMART assessment.",
   }
 }
 
@@ -304,7 +336,11 @@ export function parseSmartDisk(
     }
   }
 
-  const temperature = number(object(document.temperature)?.current)
+  const reportedTemperature = number(object(document.temperature)?.current)
+  const temperature =
+    reportedTemperature !== null && reportedTemperature > 0
+      ? reportedTemperature
+      : null
   const metrics = [
     overallMetric(document),
     temperatureMetric(temperature, document),
@@ -312,23 +348,29 @@ export function parseSmartDisk(
     ...nvmeMetrics(document),
   ]
   const state = worstState(metrics.map((metric) => metric.state))
+  const scsiModel = [string(document.vendor), string(document.product)]
+    .filter((value): value is string => value !== null)
+    .join(" ")
   return {
     device: device.name,
     protocol: string(object(document.device)?.protocol) ?? device.protocol,
     model:
       string(document.model_name) ??
       string(document.scsi_model_name) ??
-      "Unknown disk",
+      (scsiModel || `Disk ${device.name.slice("/dev/".length)}`),
     serial: string(document.serial_number),
     capacity_bytes: number(object(document.user_capacity)?.bytes),
     temperature_celsius: temperature,
     state,
     status:
-      state === "good"
-        ? "All reported health indicators are good."
-        : state === "bad"
-          ? "One or more indicators need attention."
-          : "One or more indicators are critical.",
+      smartctlMessage(document) ??
+      (object(document.smart_support)?.available === false
+        ? "SMART monitoring is unavailable for this device."
+        : state === "good"
+          ? "All reported health indicators are good."
+          : state === "bad"
+            ? "One or more indicators need attention."
+            : "One or more indicators are critical."),
     metrics,
   }
 }
