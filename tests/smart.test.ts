@@ -3,6 +3,7 @@ import { describe, it } from "node:test"
 
 import {
   BLOCK_DEVICE_COMMAND,
+  diskAttentionSummary,
   getDiskHealth,
   parseBlockIdentities,
   parseSmartDisk,
@@ -48,20 +49,20 @@ describe("SMART disk health", () => {
       })
     )
 
-    assert.equal(disk.state, "critical")
+    assert.equal(disk.state, "warning")
     assert.equal(disk.manufacturer, "Test")
     assert.equal(disk.wwn, "0x5e83a9710001e008")
     assert.equal(
       disk.metrics.find((metric) => metric.key === "temperature")?.state,
-      "bad"
+      "warning"
     )
     assert.equal(
       disk.metrics.find((metric) => metric.key === "reallocated")?.state,
-      "bad"
+      "warning"
     )
     assert.equal(
       disk.metrics.find((metric) => metric.key === "pending")?.state,
-      "critical"
+      "warning"
     )
   })
 
@@ -83,14 +84,14 @@ describe("SMART disk health", () => {
       })
     )
 
-    assert.equal(disk.state, "bad")
+    assert.equal(disk.state, "warning")
     assert.equal(
       disk.metrics.find((metric) => metric.key === "endurance")?.value,
       "15%"
     )
     assert.equal(
       disk.metrics.find((metric) => metric.key === "available-spare")?.state,
-      "bad"
+      "warning"
     )
   })
 
@@ -106,14 +107,101 @@ describe("SMART disk health", () => {
 
     assert.equal(disk.model, "Disk sdh")
     assert.equal(disk.temperature_celsius, null)
-    assert.equal(disk.state, "bad")
+    assert.equal(disk.state, "warning")
     assert.equal(
       disk.metrics.find((metric) => metric.key === "smart-status")?.value,
       "Unavailable"
     )
     assert.equal(
       disk.metrics.find((metric) => metric.key === "temperature")?.state,
-      "bad"
+      "warning"
+    )
+  })
+
+  it("keeps a passing disk with missing temperature in Warning", () => {
+    const disk = parseSmartDisk(
+      { name: "/dev/sdh", type: "sat", protocol: "ATA" },
+      result({
+        device: { protocol: "ATA" },
+        model_name: "OCZ-ARC100",
+        smart_status: { passed: true },
+      })
+    )
+
+    assert.equal(disk.state, "warning")
+    assert.equal(diskAttentionSummary(disk), "temperature unavailable")
+    assert.equal(
+      disk.metrics.find((metric) => metric.key === "smart-status")?.value,
+      "Passed"
+    )
+  })
+
+  it("reserves Failed for an explicit SMART failure", () => {
+    const disk = parseSmartDisk(
+      { name: "/dev/sdz", type: "sat", protocol: "ATA" },
+      result({
+        device: { protocol: "ATA" },
+        model_name: "Failing disk",
+        smart_status: { passed: false },
+        temperature: { current: 35 },
+      })
+    )
+
+    assert.equal(disk.state, "failed")
+    assert.equal(diskAttentionSummary(disk), "SMART assessment failed")
+  })
+
+  it("prioritises a failed SMART attribute over telemetry warnings", () => {
+    const disk = parseSmartDisk(
+      { name: "/dev/sdz", type: "sat", protocol: "ATA" },
+      result({
+        device: { protocol: "ATA" },
+        model_name: "Threshold failure",
+        smart_status: { passed: true },
+        ata_smart_attributes: {
+          table: [{ id: 5, when_failed: "NOW", raw: { value: 2 } }],
+        },
+      })
+    )
+
+    assert.equal(disk.state, "failed")
+    assert.equal(diskAttentionSummary(disk), "reallocated sectors 2")
+  })
+
+  it("sorts attention disks first and identifies them in the alert", async () => {
+    const health = await getDiskHealth(async (_title, command) => {
+      if (command[0] === "lsblk") {
+        return result({ blockdevices: [] })
+      }
+      if (command.includes("--scan-open")) {
+        return result({
+          devices: [
+            { name: "/dev/sda", type: "sat", protocol: "ATA" },
+            { name: "/dev/sdh", type: "sat", protocol: "ATA" },
+          ],
+        })
+      }
+      return command.includes("/dev/sda")
+        ? result({
+            device: { protocol: "ATA" },
+            model_name: "Healthy disk",
+            smart_status: { passed: true },
+            temperature: { current: 35 },
+          })
+        : result({
+            device: { protocol: "ATA" },
+            model_name: "Warning disk",
+            smart_status: { passed: true },
+          })
+    })
+
+    assert.deepEqual(
+      health.disks.map((disk) => disk.device),
+      ["/dev/sdh", "/dev/sda"]
+    )
+    assert.equal(
+      health.message,
+      "1 disk needs attention — /dev/sdh: temperature unavailable."
     )
   })
 
@@ -188,7 +276,7 @@ describe("SMART disk health", () => {
     assert.equal(health.disks[0].model, "OCZ-ARC100")
     assert.equal(health.disks[0].manufacturer, "OCZ")
     assert.equal(health.disks[0].protocol, "ATA")
-    assert.equal(health.disks[0].state, "good")
+    assert.equal(health.disks[0].state, "healthy")
   })
 
   it("does not run smartctl when disabled", async () => {

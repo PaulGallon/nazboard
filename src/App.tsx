@@ -60,6 +60,7 @@ import {
   flattenDatasets,
   formatBytes,
   formatPropertyValue,
+  formatRelativeTime,
   searchForSelection,
   selectionFromSearch,
   stateLabel,
@@ -76,6 +77,21 @@ import {
 } from "@/lib/status"
 
 const REFRESH_MS = 60_000
+
+function UpdatedAt({ value }: { value: string }) {
+  const [now, setNow] = React.useState(() => new Date(value).getTime())
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(interval)
+  }, [value])
+
+  return (
+    <time dateTime={value} title={new Date(value).toLocaleString()}>
+      Updated {formatRelativeTime(value, now)}
+    </time>
+  )
+}
 
 function statusVariant(
   state: State
@@ -347,11 +363,11 @@ function Overview({ status }: { status: StatusPayload }) {
                 {status.disk_health.disks.length}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {status.disk_health.state === "good"
-                  ? "Good"
-                  : status.disk_health.state === "bad"
-                    ? "Needs attention"
-                    : "Critical"}
+                {status.disk_health.state === "healthy"
+                  ? "Healthy"
+                  : status.disk_health.state === "warning"
+                    ? "Warning"
+                    : "Failed"}
               </div>
             </CardContent>
           </Card>
@@ -916,9 +932,14 @@ function App() {
                 {title}
               </h1>
               <p className="truncate text-xs text-muted-foreground">
-                {status
-                  ? `Updated ${new Date(status.generated_at).toLocaleString()}`
-                  : "Loading status"}
+                {status ? (
+                  <UpdatedAt
+                    key={status.generated_at}
+                    value={status.generated_at}
+                  />
+                ) : (
+                  "Loading status"
+                )}
               </p>
             </div>
           </div>

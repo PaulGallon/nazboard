@@ -493,9 +493,9 @@ function overallForFeatures(
   if (diskHealth.enabled) {
     active.push({
       state:
-        diskHealth.state === "good"
+        diskHealth.state === "healthy"
           ? "ok"
-          : diskHealth.state === "bad"
+          : diskHealth.state === "warning"
             ? "warn"
             : "error",
       message: diskHealth.message,
@@ -892,6 +892,57 @@ function attachPoolDetails(
   })
 }
 
+function diskNameMatches(
+  device: string,
+  serial: string | null,
+  wwn: string | null,
+  zfsName: string
+) {
+  const leafName = zfsName.replace(/^\/dev\//, "")
+  const deviceName = device.replace(/^\/dev\//, "")
+  const partitionSuffix = leafName.slice(deviceName.length)
+  if (
+    leafName === deviceName ||
+    (leafName.startsWith(deviceName) && /^(?:p)?\d+$/.test(partitionSuffix))
+  ) {
+    return true
+  }
+
+  const identifiers = [serial, wwn, wwn?.replace(/^0x/i, "")].filter(
+    (value): value is string => Boolean(value)
+  )
+  return identifiers.some((identifier) =>
+    leafName.toLowerCase().includes(identifier.toLowerCase())
+  )
+}
+
+export function attachDiskMembership(
+  health: DiskHealthStatus,
+  pools: PoolStatus[]
+): DiskHealthStatus {
+  return {
+    ...health,
+    disks: health.disks.map((disk) => {
+      for (const pool of pools) {
+        for (const vdev of pool.vdevs) {
+          if (
+            vdev.disks.some((member) =>
+              diskNameMatches(disk.device, disk.serial, disk.wwn, member.name)
+            )
+          ) {
+            return {
+              ...disk,
+              pool_name: pool.name,
+              vdev_name: vdev.name,
+            }
+          }
+        }
+      }
+      return disk
+    }),
+  }
+}
+
 function collectIssues(
   zfs: ZfsStatus,
   pools: PoolStatus[],
@@ -925,19 +976,19 @@ function collectIssues(
   if (diskHealth.enabled) {
     if (diskHealth.disks.length === 0) {
       issues.push({
-        severity: diskHealth.state === "critical" ? "error" : "warn",
+        severity: diskHealth.state === "failed" ? "error" : "warn",
         scope: "disk",
         name: "SMART disk health",
         message: diskHealth.message,
       })
     }
     for (const disk of diskHealth.disks) {
-      if (disk.state !== "good") {
+      if (disk.state !== "healthy") {
         const failingMetrics = disk.metrics
-          .filter((metric) => metric.state !== "good")
+          .filter((metric) => metric.state !== "healthy")
           .map((metric) => metric.label.toLowerCase())
         issues.push({
-          severity: disk.state === "critical" ? "error" : "warn",
+          severity: disk.state === "failed" ? "error" : "warn",
           scope: "disk",
           name: disk.model,
           message:
@@ -1013,7 +1064,7 @@ function collectIssues(
 
 export async function getStatus(): Promise<StatusPayload> {
   const isZfsEnabled = zfsEnabled()
-  const [baseCommands, diskHealth] = await Promise.all([
+  const [baseCommands, rawDiskHealth] = await Promise.all([
     isZfsEnabled
       ? Promise.all(
           BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
@@ -1029,6 +1080,7 @@ export async function getStatus(): Promise<StatusPayload> {
     parseVdevs(commands),
     parseZfsProperties(commands)
   )
+  const diskHealth = attachDiskMembership(rawDiskHealth, pools)
   const zfs: ZfsStatus = isZfsEnabled
     ? classifyZfsStatus(commands, pools)
     : {

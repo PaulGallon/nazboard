@@ -3,11 +3,24 @@ import { describe, it } from "node:test"
 
 import {
   formatPropertyValue,
+  formatRelativeTime,
   searchForSelection,
   selectionFromSearch,
 } from "../src/lib/status.js"
 
 describe("status presentation", () => {
+  it("formats refresh timestamps as relative time", () => {
+    const now = new Date("2026-09-02T12:00:07Z").getTime()
+    assert.equal(
+      formatRelativeTime("2026-09-02T12:00:00Z", now),
+      "7 seconds ago"
+    )
+    assert.equal(
+      formatRelativeTime("2026-09-02T11:58:00Z", now),
+      "2 minutes ago"
+    )
+  })
+
   it("formats only properties whose values represent bytes", () => {
     assert.equal(formatPropertyValue("4096", "used"), "4.0 KiB")
     assert.equal(formatPropertyValue("1784019600", "creation"), "1784019600")

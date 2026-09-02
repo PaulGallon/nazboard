@@ -222,7 +222,6 @@ function countMetric(
   key: string,
   label: string,
   count: number,
-  severity: "bad" | "critical",
   goodDetail: string,
   issueDetail: string,
   failed = false
@@ -231,7 +230,7 @@ function countMetric(
     key,
     label,
     value: count.toLocaleString("en-GB"),
-    state: count === 0 ? "good" : failed ? "critical" : severity,
+    state: failed ? "failed" : count === 0 ? "healthy" : "warning",
     detail: count === 0 ? goodDetail : issueDetail,
   }
 }
@@ -245,7 +244,7 @@ function temperatureMetric(
       key: "temperature",
       label: "Temperature",
       value: "Unknown",
-      state: "bad",
+      state: "warning",
       detail: "The drive did not report a live temperature.",
     }
   }
@@ -258,11 +257,7 @@ function temperatureMetric(
   const temperatureWarning = Boolean((nvmeWarning ?? 0) & 0x02)
   const criticalAt = limit ?? 60
   const state: MetricState =
-    temperatureWarning || temperature >= criticalAt
-      ? "critical"
-      : temperature >= criticalAt - 10
-        ? "bad"
-        : "good"
+    temperatureWarning || temperature >= criticalAt - 10 ? "warning" : "healthy"
 
   return {
     key: "temperature",
@@ -271,7 +266,7 @@ function temperatureMetric(
     state,
     detail: limit
       ? `Drive operating limit: ${limit}°C.`
-      : "Warns from 50°C and becomes critical at 60°C when the drive supplies no operating limit.",
+      : "Needs attention from 50°C when the drive supplies no operating limit.",
   }
 }
 
@@ -279,13 +274,7 @@ function overallMetric(document: JsonObject): SmartMetric {
   const passed = object(document.smart_status)?.passed
   const supportAvailable = object(document.smart_support)?.available
   const state: MetricState =
-    passed === true
-      ? "good"
-      : passed === false
-        ? "critical"
-        : supportAvailable === false
-          ? "bad"
-          : "critical"
+    passed === true ? "healthy" : passed === false ? "failed" : "warning"
   return {
     key: "smart-status",
     label: "SMART assessment",
@@ -315,7 +304,6 @@ function ataMetrics(document: JsonObject): SmartMetric[] {
       key: "reallocated",
       label: "Reallocated sectors",
       ids: [5],
-      severity: "bad" as const,
       good: "No sectors have been remapped.",
       issue:
         "The drive has remapped unreliable sectors; monitor for increases.",
@@ -324,7 +312,6 @@ function ataMetrics(document: JsonObject): SmartMetric[] {
       key: "pending",
       label: "Pending sectors",
       ids: [197],
-      severity: "critical" as const,
       good: "No unstable sectors are awaiting remapping.",
       issue: "Unstable sectors are waiting to be re-read or remapped.",
     },
@@ -332,7 +319,6 @@ function ataMetrics(document: JsonObject): SmartMetric[] {
       key: "uncorrectable",
       label: "Offline uncorrectable",
       ids: [198],
-      severity: "critical" as const,
       good: "Offline scans found no uncorrectable sectors.",
       issue: "Offline scans found data that could not be corrected.",
     },
@@ -340,7 +326,6 @@ function ataMetrics(document: JsonObject): SmartMetric[] {
       key: "interface-errors",
       label: "Interface errors",
       ids: [199],
-      severity: "bad" as const,
       good: "No SATA link CRC errors were recorded.",
       issue:
         "SATA link errors were recorded; inspect cabling if the count rises.",
@@ -357,7 +342,6 @@ function ataMetrics(document: JsonObject): SmartMetric[] {
             definition.key,
             definition.label,
             value,
-            definition.severity,
             definition.good,
             definition.issue,
             failedAttribute(attribute)
@@ -380,7 +364,7 @@ function nvmeMetrics(document: JsonObject): SmartMetric[] {
       key: "endurance",
       label: "Endurance remaining",
       value: `${remaining}%`,
-      state: remaining <= 10 ? "critical" : remaining <= 20 ? "bad" : "good",
+      state: remaining <= 20 ? "warning" : "healthy",
       detail: `${used}% of the drive's rated endurance has been consumed.`,
     })
   }
@@ -392,12 +376,7 @@ function nvmeMetrics(document: JsonObject): SmartMetric[] {
       key: "available-spare",
       label: "Available spare",
       value: `${spare}%`,
-      state:
-        spare <= threshold
-          ? "critical"
-          : spare <= threshold + 5
-            ? "bad"
-            : "good",
+      state: spare <= threshold + 5 ? "warning" : "healthy",
       detail: `The drive's critical spare threshold is ${threshold}%.`,
     })
   }
@@ -409,7 +388,6 @@ function nvmeMetrics(document: JsonObject): SmartMetric[] {
         "media-errors",
         "Media errors",
         mediaErrors,
-        "critical",
         "No unrecovered data-integrity errors were recorded.",
         "The controller recorded unrecovered data-integrity errors."
       )
@@ -419,11 +397,35 @@ function nvmeMetrics(document: JsonObject): SmartMetric[] {
 }
 
 function worstState(states: MetricState[]): MetricState {
-  return states.includes("critical")
-    ? "critical"
-    : states.includes("bad")
-      ? "bad"
-      : "good"
+  return states.includes("failed")
+    ? "failed"
+    : states.includes("warning")
+      ? "warning"
+      : "healthy"
+}
+
+const DISK_STATE_PRIORITY: Record<MetricState, number> = {
+  failed: 0,
+  warning: 1,
+  healthy: 2,
+}
+
+export function diskAttentionSummary(disk: SmartDiskStatus) {
+  const metric =
+    disk.metrics.find((candidate) => candidate.state === "failed") ??
+    disk.metrics.find((candidate) => candidate.state === "warning")
+  if (!metric) {
+    return disk.status
+  }
+  if (metric.key === "temperature") {
+    return disk.temperature_celsius === null
+      ? "temperature unavailable"
+      : `temperature elevated (${metric.value})`
+  }
+  if (metric.key === "smart-status") {
+    return `SMART assessment ${metric.value.toLowerCase()}`
+  }
+  return `${metric.label.toLowerCase()} ${metric.value}`
 }
 
 export function parseSmartDisk(
@@ -434,7 +436,7 @@ export function parseSmartDisk(
   const document = parseJson(result)
   if (!document) {
     return {
-      device: device.name,
+      device: identity?.path ?? device.name,
       protocol: device.protocol,
       manufacturer: identity?.manufacturer ?? null,
       model: identity?.model ?? "Unknown disk",
@@ -442,7 +444,9 @@ export function parseSmartDisk(
       wwn: identity?.wwn ?? null,
       capacity_bytes: identity?.capacityBytes ?? null,
       temperature_celsius: null,
-      state: "critical",
+      pool_name: null,
+      vdev_name: null,
+      state: "warning",
       status: result.error ?? "SMART data could not be parsed.",
       metrics: [],
     }
@@ -476,7 +480,7 @@ export function parseSmartDisk(
       ? blockManufacturer
       : (smartManufacturer ?? manufacturerFromModel(model))
   return {
-    device: device.name,
+    device: identity?.path ?? device.name,
     protocol: string(object(document.device)?.protocol) ?? device.protocol,
     manufacturer,
     model,
@@ -487,16 +491,18 @@ export function parseSmartDisk(
       identity?.capacityBytes ??
       null,
     temperature_celsius: temperature,
+    pool_name: null,
+    vdev_name: null,
     state,
     status:
       smartctlMessage(document) ??
       (object(document.smart_support)?.available === false
         ? "SMART monitoring is unavailable for this device."
-        : state === "good"
+        : state === "healthy"
           ? "All reported health indicators are good."
-          : state === "bad"
+          : state === "warning"
             ? "One or more indicators need attention."
-            : "One or more indicators are critical."),
+            : "One or more indicators have failed."),
     metrics,
   }
 }
@@ -513,7 +519,7 @@ export async function getDiskHealth(
   if (!smartEnabled()) {
     return {
       enabled: false,
-      state: "good",
+      state: "healthy",
       message: "SMART disk health monitoring is disabled.",
       disks: [],
     }
@@ -528,7 +534,7 @@ export async function getDiskHealth(
   if (!parseJson(scan)) {
     return {
       enabled: true,
-      state: "critical",
+      state: "warning",
       message:
         scan.error ??
         "Physical disk discovery failed. Check smartctl availability and device permissions.",
@@ -536,40 +542,54 @@ export async function getDiskHealth(
     }
   }
 
-  const disks = await Promise.all(
-    devices.map(async (device) => {
-      let result = await runCommand(`SMART ${device.name}`, smartQuery(device))
-      if (shouldTrySat(device, result)) {
-        const satResult = await runCommand(`SMART ${device.name} (SAT)`, [
-          "smartctl",
-          "-a",
-          "-j",
-          "-d",
-          "sat",
-          device.name,
-        ])
-        if (smartResultSupportsAta(satResult)) {
-          result = satResult
+  const disks = (
+    await Promise.all(
+      devices.map(async (device) => {
+        let result = await runCommand(
+          `SMART ${device.name}`,
+          smartQuery(device)
+        )
+        if (shouldTrySat(device, result)) {
+          const satResult = await runCommand(`SMART ${device.name} (SAT)`, [
+            "smartctl",
+            "-a",
+            "-j",
+            "-d",
+            "sat",
+            device.name,
+          ])
+          if (smartResultSupportsAta(satResult)) {
+            result = satResult
+          }
         }
-      }
-      return parseSmartDisk(
-        device,
-        result,
-        identityForDevice(device, identities)
-      )
-    })
+        return parseSmartDisk(
+          device,
+          result,
+          identityForDevice(device, identities)
+        )
+      })
+    )
+  ).sort(
+    (left, right) =>
+      DISK_STATE_PRIORITY[left.state] - DISK_STATE_PRIORITY[right.state]
   )
   const state =
-    disks.length === 0 ? "bad" : worstState(disks.map((disk) => disk.state))
+    disks.length === 0 ? "warning" : worstState(disks.map((disk) => disk.state))
+  const attention = disks.filter((disk) => disk.state !== "healthy")
   return {
     enabled: true,
     state,
     message:
       disks.length === 0
         ? "No SMART-capable physical disks were discovered."
-        : state === "good"
+        : state === "healthy"
           ? `All ${disks.length} physical disks report good health.`
-          : `${disks.filter((disk) => disk.state !== "good").length} of ${disks.length} physical disks need attention.`,
+          : `${attention.length} disk${attention.length === 1 ? " needs" : "s need"} attention — ${attention
+              .slice(0, 2)
+              .map((disk) => `${disk.device}: ${diskAttentionSummary(disk)}`)
+              .join(
+                "; "
+              )}${attention.length > 2 ? `; +${attention.length - 2} more` : ""}.`,
     disks,
   }
 }
