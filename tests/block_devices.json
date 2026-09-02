@@ -1,0 +1,24 @@
+{
+  "blockdevices": [
+    {
+      "name": "sda",
+      "path": "/dev/sda",
+      "vendor": "Example Storage",
+      "model": "Archive HDD 8TB",
+      "wwn": "0x5000c50000000001",
+      "serial": "REDACTED-SATA-01",
+      "type": "disk",
+      "size": 8001563222016
+    },
+    {
+      "name": "nvme0n1",
+      "path": "/dev/nvme0n1",
+      "vendor": "Example Flash",
+      "model": "Fast NVMe 2TB",
+      "wwn": "eui.0000000000000002",
+      "serial": "REDACTED-NVME-01",
+      "type": "disk",
+      "size": 2000398934016
+    }
+  ]
+}

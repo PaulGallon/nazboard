@@ -180,13 +180,18 @@ const FIXTURE_FILES = new Map<string, string>([
     "zfs_get_all.txt",
   ],
   [["smartctl", "--scan-open", "-j"].join("\0"), "smart_scan.json"],
+  [["smartctl", "-a", "-j", "/dev/sda"].join("\0"), "smart_sda.json"],
+  [["smartctl", "-a", "-j", "/dev/nvme0"].join("\0"), "smart_nvme0.json"],
   [
-    ["smartctl", "-a", "-j", "-d", "sat", "/dev/sda"].join("\0"),
-    "smart_sda.json",
-  ],
-  [
-    ["smartctl", "-a", "-j", "-d", "nvme", "/dev/nvme0"].join("\0"),
-    "smart_nvme0.json",
+    [
+      "lsblk",
+      "--json",
+      "--bytes",
+      "--nodeps",
+      "--output",
+      "NAME,PATH,VENDOR,MODEL,WWN,SERIAL,TYPE,SIZE",
+    ].join("\0"),
+    "block_devices.json",
   ],
 ])
 
@@ -355,7 +360,7 @@ export async function runCommand(
           stderr,
           error:
             "code" in error && error.code === "ENOENT"
-              ? `'${command[0]}' was not found in PATH. Install ${command[0] === "smartctl" ? "smartmontools" : "zfsutils-linux"} or use the nazboard container image.`
+              ? `'${command[0]}' was not found in PATH. Install ${command[0] === "smartctl" ? "smartmontools" : command[0] === "lsblk" ? "util-linux" : "zfsutils-linux"} or use the nazboard container image.`
               : error.killed && error.signal === "SIGTERM"
                 ? `Command timed out after ${COMMAND_TIMEOUT_MS / 1000} seconds.`
                 : `Failed to execute command: ${error.message}`,

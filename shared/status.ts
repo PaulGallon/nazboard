@@ -68,8 +68,10 @@ export type SmartMetric = {
 export type SmartDiskStatus = {
   device: string
   protocol: string
+  manufacturer: string | null
   model: string
   serial: string | null
+  wwn: string | null
   capacity_bytes: number | null
   temperature_celsius: number | null
   state: MetricState

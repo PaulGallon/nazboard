@@ -11,8 +11,8 @@ FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152
 RUN set -eux; \
     sed -i "s/ main$/ main contrib non-free non-free-firmware/" /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libcap2-bin smartmontools zfsutils-linux; \
-    setcap cap_dac_override,cap_sys_admin=ep /usr/sbin/smartctl; \
+    apt-get install -y --no-install-recommends libcap2-bin smartmontools util-linux zfsutils-linux; \
+    setcap cap_dac_override,cap_sys_admin,cap_sys_rawio=ep /usr/sbin/smartctl; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd --gid 10001 nazboard; \
     useradd --uid 10001 --gid nazboard --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin nazboard; \
