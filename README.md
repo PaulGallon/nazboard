@@ -47,7 +47,9 @@ docker run --rm \
   --device /dev/nvme0 \
   --read-only \
   --cap-drop ALL \
-  --security-opt no-new-privileges \
+  --cap-add DAC_OVERRIDE \
+  --cap-add SYS_ADMIN \
+  --cap-add SYS_RAWIO \
   --pids-limit 100 \
   nazboard:dev
 ```
@@ -67,10 +69,12 @@ privileges only when the host requires them. To expose the dashboard beyond the
 host, change the published address and put authentication and TLS at a trusted
 reverse proxy.
 
-The image grants `smartctl`—and only that executable—the `DAC_OVERRIDE` and
-`SYS_ADMIN` file capabilities required to open root-owned NVMe controller nodes
-and issue their read-only admin queries. The nazboard Node.js process remains
-non-root and has no effective capabilities.
+The image grants `smartctl`—and only that executable—the `DAC_OVERRIDE`,
+`SYS_ADMIN`, and `SYS_RAWIO` file capabilities required to open root-owned disk
+nodes and issue read-only NVMe and ATA SMART queries. These capabilities must
+also remain in the container's capability bounding set, as in the example
+above. The nazboard Node.js process remains non-root and has no effective
+capabilities.
 
 ## How it works
 
@@ -94,16 +98,22 @@ zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots
 zfs list -H -p -t snapshot -o name,used,refer,creation
 zfs get -H -p -t filesystem,volume,snapshot -o name,property,value,source all
 smartctl --scan-open -j
-smartctl -a -j -d <discovered type> <discovered /dev path>
+lsblk --json --bytes --nodeps --output NAME,PATH,VENDOR,MODEL,WWN,SERIAL,TYPE,SIZE
+smartctl -a -j <discovered /dev path>
+smartctl -a -j -d sat <discovered /dev path> # conditional ATA fallback
 ```
 
-The browser cannot supply command arguments. SMART device type and path values
-come only from `smartctl --scan-open`; each discovered physical device is then
-queried once. The dashboard prioritizes the drive's overall SMART assessment,
-live temperature, reallocated/pending/uncorrectable sectors and SATA interface
-errors for ATA disks. For NVMe disks it also shows endurance remaining,
-available spare and media/data-integrity errors. Every displayed metric is
-labelled Good, Bad or Critical.
+The browser cannot supply command arguments. SMART device paths come only from
+`smartctl --scan-open`. nazboard lets smartctl detect the transport rather than
+trusting the scan's type hint; if an ATA disk was exposed as SCSI and reports
+SMART unavailable, it retries with the SAT transport. Non-standard controller
+types still use their discovered type. `lsblk` supplements make, model, serial,
+WWN, and capacity without changing device discovery. The dashboard prioritizes
+the drive's overall SMART assessment, live temperature,
+reallocated/pending/uncorrectable sectors and SATA interface errors for ATA
+disks. For NVMe disks it also shows endurance remaining, available spare and
+media/data-integrity errors. Every displayed metric is labelled Good, Bad or
+Critical.
 
 Temperature uses a drive-reported operating limit when available: the final
 10°C below that limit is Bad and reaching it is Critical. Without a reported
@@ -155,7 +165,7 @@ nazboard is intentionally small and read-only, but its status data can still be
 sensitive:
 
 - It exposes raw command output, dataset names, device identifiers, mountpoints,
-  every property returned by `zfs get all`, and SMART model/serial data.
+  every property returned by `zfs get all`, and SMART model/serial/WWN data.
 - It implements no authentication, authorization, or TLS. Restrict it to trusted
   administrators or place it behind controls that provide them.
 - It exposes no ZFS write/control endpoint and accepts no browser input for
@@ -220,9 +230,10 @@ paths and serial-based names from both `zpool status` outputs by default. Pool,
 dataset, mountpoint, and other host-specific values may remain, so review every
 fixture before committing it.
 
-The checked-in `smart_*.json` files are synthetic, redacted examples. SMART
-device discovery is dynamic, so refresh and sanitize those fixtures manually
-when expanding SMART test coverage; never commit a real disk serial number.
+The checked-in `smart_*.json` and `block_devices.json` files are synthetic,
+redacted examples. SMART device discovery is dynamic, so refresh and sanitize
+those fixtures manually when expanding SMART test coverage; never commit a real
+disk serial number or WWN.
 
 To capture elsewhere first or intentionally retain device names:
 

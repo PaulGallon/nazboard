@@ -446,6 +446,11 @@ describe("status payload", () => {
       assert.equal(status.disk_health.state, "good")
       assert.equal(status.disk_health.disks.length, 2)
       assert.equal(status.disk_health.disks[0].temperature_celsius, 34)
+      assert.equal(status.disk_health.disks[0].manufacturer, "Example Storage")
+      assert.equal(status.disk_health.disks[0].model, "Archive HDD 8TB")
+      assert.equal(status.disk_health.disks[0].wwn, "0x5000c50000000001")
+      assert.equal(status.disk_health.disks[1].model, "Fast NVMe 2TB")
+      assert.equal(status.disk_health.disks[1].wwn, "eui.0000000000000002")
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {

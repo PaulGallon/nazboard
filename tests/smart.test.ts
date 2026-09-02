@@ -1,7 +1,13 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import { getDiskHealth, parseSmartDisk, smartEnabled } from "../server/smart.js"
+import {
+  BLOCK_DEVICE_COMMAND,
+  getDiskHealth,
+  parseBlockIdentities,
+  parseSmartDisk,
+  smartEnabled,
+} from "../server/smart.js"
 import type { CommandResult } from "../shared/status.js"
 
 function result(stdout: unknown): CommandResult {
@@ -29,6 +35,7 @@ describe("SMART disk health", () => {
       result({
         device: { protocol: "ATA" },
         model_name: "Test HDD",
+        wwn: { naa: 5, oui: 0xe83a97, id: 0x10001e008 },
         smart_status: { passed: true },
         temperature: { current: 52, op_limit_max: 60 },
         ata_smart_attributes: {
@@ -42,6 +49,8 @@ describe("SMART disk health", () => {
     )
 
     assert.equal(disk.state, "critical")
+    assert.equal(disk.manufacturer, "Test")
+    assert.equal(disk.wwn, "0x5e83a9710001e008")
     assert.equal(
       disk.metrics.find((metric) => metric.key === "temperature")?.state,
       "bad"
@@ -106,6 +115,80 @@ describe("SMART disk health", () => {
       disk.metrics.find((metric) => metric.key === "temperature")?.state,
       "bad"
     )
+  })
+
+  it("parses make, model, WWN, serial, and size from block devices", () => {
+    const identities = parseBlockIdentities(
+      result({
+        blockdevices: [
+          {
+            path: "/dev/sdh",
+            vendor: "OCZ",
+            model: "ARC100",
+            wwn: "0x5e83a9710001e008",
+            serial: "REDACTED",
+            type: "disk",
+            size: "240057409536",
+          },
+          { path: "/dev/sdh1", type: "part", size: 1024 },
+        ],
+      })
+    )
+
+    assert.deepEqual(identities, [
+      {
+        path: "/dev/sdh",
+        manufacturer: "OCZ",
+        model: "ARC100",
+        serial: "REDACTED",
+        wwn: "0x5e83a9710001e008",
+        capacityBytes: 240_057_409_536,
+      },
+    ])
+  })
+
+  it("retries scan-misidentified SCSI disks through SAT", async () => {
+    const calls: string[][] = []
+    const health = await getDiskHealth(async (_title, command) => {
+      calls.push(command)
+      if (command[0] === "lsblk") {
+        assert.deepEqual(command, BLOCK_DEVICE_COMMAND)
+        return result({ blockdevices: [] })
+      }
+      if (command.includes("--scan-open")) {
+        return result({
+          devices: [{ name: "/dev/sdh", type: "scsi", protocol: "SCSI" }],
+        })
+      }
+      if (command.includes("sat")) {
+        return result({
+          device: { protocol: "ATA" },
+          model_name: "OCZ-ARC100",
+          smart_support: { available: true, enabled: true },
+          smart_status: { passed: true },
+          temperature: { current: 31 },
+          ata_smart_attributes: { table: [] },
+        })
+      }
+      return result({
+        device: { protocol: "SCSI" },
+        smart_support: { available: false },
+      })
+    })
+
+    assert.deepEqual(calls[2], ["smartctl", "-a", "-j", "/dev/sdh"])
+    assert.deepEqual(calls[3], [
+      "smartctl",
+      "-a",
+      "-j",
+      "-d",
+      "sat",
+      "/dev/sdh",
+    ])
+    assert.equal(health.disks[0].model, "OCZ-ARC100")
+    assert.equal(health.disks[0].manufacturer, "OCZ")
+    assert.equal(health.disks[0].protocol, "ATA")
+    assert.equal(health.disks[0].state, "good")
   })
 
   it("does not run smartctl when disabled", async () => {

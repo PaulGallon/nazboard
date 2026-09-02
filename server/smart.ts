@@ -14,12 +14,29 @@ type SmartDevice = {
   protocol: string
 }
 
+type BlockIdentity = {
+  path: string
+  manufacturer: string | null
+  model: string | null
+  serial: string | null
+  wwn: string | null
+  capacityBytes: number | null
+}
+
 type CommandRunner = (
   title: string,
   command: string[]
 ) => Promise<CommandResult>
 
 const SMART_SCAN_COMMAND = ["smartctl", "--scan-open", "-j"]
+export const BLOCK_DEVICE_COMMAND = [
+  "lsblk",
+  "--json",
+  "--bytes",
+  "--nodeps",
+  "--output",
+  "NAME,PATH,VENDOR,MODEL,WWN,SERIAL,TYPE,SIZE",
+]
 
 function object(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -33,6 +50,18 @@ function number(value: unknown): number | null {
 
 function string(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function numeric(value: unknown): number | null {
+  const direct = number(value)
+  if (direct !== null) {
+    return direct
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 function parseJson(result: CommandResult): JsonObject | null {
@@ -83,6 +112,86 @@ function parseDevices(result: CommandResult): SmartDevice[] {
       },
     ]
   })
+}
+
+export function parseBlockIdentities(result: CommandResult): BlockIdentity[] {
+  const devices = parseJson(result)?.blockdevices
+  if (!Array.isArray(devices)) {
+    return []
+  }
+
+  return devices.flatMap((value) => {
+    const device = object(value)
+    const path = string(device?.path)
+    if (!path || string(device?.type)?.toLowerCase() !== "disk") {
+      return []
+    }
+    return [
+      {
+        path,
+        manufacturer: string(device?.vendor),
+        model: string(device?.model),
+        serial: string(device?.serial),
+        wwn: string(device?.wwn),
+        capacityBytes: numeric(device?.size),
+      },
+    ]
+  })
+}
+
+function identityForDevice(device: SmartDevice, identities: BlockIdentity[]) {
+  return (
+    identities.find((identity) => identity.path === device.name) ??
+    identities.find(
+      (identity) =>
+        device.type === "nvme" &&
+        identity.path.startsWith(`${device.name}n`) &&
+        /^\d+$/.test(identity.path.slice(`${device.name}n`.length))
+    ) ??
+    null
+  )
+}
+
+function manufacturerFromModel(model: string | null) {
+  return model?.split(/[\s-]+/)[0] ?? null
+}
+
+function smartWwn(document: JsonObject) {
+  const wwn = object(document.wwn)
+  const naa = number(wwn?.naa)
+  const oui = number(wwn?.oui)
+  const id = number(wwn?.id)
+  if (naa !== null && oui !== null && id !== null) {
+    return `0x${naa.toString(16)}${oui.toString(16).padStart(6, "0")}${id.toString(16).padStart(9, "0")}`
+  }
+  return string(document.logical_unit_id)
+}
+
+function smartResultSupportsAta(result: CommandResult) {
+  const document = parseJson(result)
+  if (!document || string(object(document.device)?.protocol) !== "ATA") {
+    return false
+  }
+  const passed = object(document.smart_status)?.passed
+  const support = object(document.smart_support)?.available
+  const attributes = object(document.ata_smart_attributes)?.table
+  return (
+    typeof passed === "boolean" || support === true || Array.isArray(attributes)
+  )
+}
+
+function shouldTrySat(device: SmartDevice, result: CommandResult) {
+  if (device.type !== "scsi") {
+    return false
+  }
+  const document = parseJson(result)
+  return object(document?.smart_support)?.available === false
+}
+
+function smartQuery(device: SmartDevice) {
+  return ["ata", "sat", "scsi", "nvme"].includes(device.type)
+    ? ["smartctl", "-a", "-j", device.name]
+    : ["smartctl", "-a", "-j", "-d", device.type, device.name]
 }
 
 function rawAttributeValue(attribute: JsonObject) {
@@ -319,16 +428,19 @@ function worstState(states: MetricState[]): MetricState {
 
 export function parseSmartDisk(
   device: SmartDevice,
-  result: CommandResult
+  result: CommandResult,
+  identity: BlockIdentity | null = null
 ): SmartDiskStatus {
   const document = parseJson(result)
   if (!document) {
     return {
       device: device.name,
       protocol: device.protocol,
-      model: "Unknown disk",
-      serial: null,
-      capacity_bytes: null,
+      manufacturer: identity?.manufacturer ?? null,
+      model: identity?.model ?? "Unknown disk",
+      serial: identity?.serial ?? null,
+      wwn: identity?.wwn ?? null,
+      capacity_bytes: identity?.capacityBytes ?? null,
       temperature_celsius: null,
       state: "critical",
       status: result.error ?? "SMART data could not be parsed.",
@@ -351,15 +463,29 @@ export function parseSmartDisk(
   const scsiModel = [string(document.vendor), string(document.product)]
     .filter((value): value is string => value !== null)
     .join(" ")
+  const model =
+    identity?.model ??
+    string(document.model_name) ??
+    string(document.scsi_model_name) ??
+    (scsiModel || `Disk ${device.name.slice("/dev/".length)}`)
+  const smartManufacturer = string(document.vendor)
+  const blockManufacturer = identity?.manufacturer
+  const manufacturer =
+    blockManufacturer &&
+    !["ata", "nvme"].includes(blockManufacturer.toLowerCase())
+      ? blockManufacturer
+      : (smartManufacturer ?? manufacturerFromModel(model))
   return {
     device: device.name,
     protocol: string(object(document.device)?.protocol) ?? device.protocol,
-    model:
-      string(document.model_name) ??
-      string(document.scsi_model_name) ??
-      (scsiModel || `Disk ${device.name.slice("/dev/".length)}`),
-    serial: string(document.serial_number),
-    capacity_bytes: number(object(document.user_capacity)?.bytes),
+    manufacturer,
+    model,
+    serial: string(document.serial_number) ?? identity?.serial ?? null,
+    wwn: identity?.wwn ?? smartWwn(document) ?? null,
+    capacity_bytes:
+      number(object(document.user_capacity)?.bytes) ??
+      identity?.capacityBytes ??
+      null,
     temperature_celsius: temperature,
     state,
     status:
@@ -393,8 +519,12 @@ export async function getDiskHealth(
     }
   }
 
-  const scan = await runCommand("SMART device scan", SMART_SCAN_COMMAND)
+  const [scan, blockDevices] = await Promise.all([
+    runCommand("SMART device scan", SMART_SCAN_COMMAND),
+    runCommand("Block device identity", BLOCK_DEVICE_COMMAND),
+  ])
   const devices = parseDevices(scan)
+  const identities = parseBlockIdentities(blockDevices)
   if (!parseJson(scan)) {
     return {
       enabled: true,
@@ -408,15 +538,25 @@ export async function getDiskHealth(
 
   const disks = await Promise.all(
     devices.map(async (device) => {
-      const result = await runCommand(`SMART ${device.name}`, [
-        "smartctl",
-        "-a",
-        "-j",
-        "-d",
-        device.type,
-        device.name,
-      ])
-      return parseSmartDisk(device, result)
+      let result = await runCommand(`SMART ${device.name}`, smartQuery(device))
+      if (shouldTrySat(device, result)) {
+        const satResult = await runCommand(`SMART ${device.name} (SAT)`, [
+          "smartctl",
+          "-a",
+          "-j",
+          "-d",
+          "sat",
+          device.name,
+        ])
+        if (smartResultSupportsAta(satResult)) {
+          result = satResult
+        }
+      }
+      return parseSmartDisk(
+        device,
+        result,
+        identityForDevice(device, identities)
+      )
     })
   )
   const state =
