@@ -13,6 +13,7 @@ on:
       - "shared/**"
       - "src/**"
       - "tests/*.txt"
+      - "tests/*.json"
       - "tsconfig*.json"
       - "vite.config.ts"
   pull_request:
@@ -26,6 +27,7 @@ on:
       - "shared/**"
       - "src/**"
       - "tests/*.txt"
+      - "tests/*.json"
       - "tsconfig*.json"
       - "vite.config.ts"
   workflow_dispatch:

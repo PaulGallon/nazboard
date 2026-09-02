@@ -11,10 +11,11 @@ FROM node:26-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152
 RUN set -eux; \
     sed -i "s/ main$/ main contrib non-free non-free-firmware/" /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
-    apt-get install -y --no-install-recommends zfsutils-linux; \
+    apt-get install -y --no-install-recommends smartmontools zfsutils-linux; \
     rm -rf /var/lib/apt/lists/*; \
     groupadd --gid 10001 nazboard; \
-    useradd --uid 10001 --gid nazboard --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin nazboard
+    useradd --uid 10001 --gid nazboard --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin nazboard; \
+    usermod --append --groups disk nazboard
 
 WORKDIR /app
 COPY --from=build /src/build/server /app/build/server

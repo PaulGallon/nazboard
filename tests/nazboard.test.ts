@@ -18,6 +18,7 @@ import {
   attachDatasetsToPools,
   classifyOverall,
   classifyUsage,
+  classifyZfsStatus,
   getStatus,
   handleRequest,
   nestDatasets,
@@ -29,6 +30,7 @@ import {
   parseZfsSize,
   readFixture,
   runCommand,
+  zfsEnabled,
 } from "../server/nazboard.js"
 import type { CommandResult } from "../shared/status.js"
 
@@ -215,6 +217,46 @@ describe("test data generator", () => {
 })
 
 describe("ZFS parsing", () => {
+  it("enables ZFS by default and accepts common false values", () => {
+    assert.equal(zfsEnabled({}), true)
+    assert.equal(zfsEnabled({ NAZBOARD_ZFS_ENABLED: "true" }), true)
+    assert.equal(zfsEnabled({ NAZBOARD_ZFS_ENABLED: "0" }), false)
+    assert.equal(zfsEnabled({ NAZBOARD_ZFS_ENABLED: "OFF" }), false)
+  })
+
+  it("distinguishes an empty ZFS host from unavailable ZFS support", () => {
+    assert.deepEqual(
+      classifyZfsStatus(
+        [commandResult("ZFS health summary", "no pools available\n")],
+        []
+      ),
+      {
+        enabled: true,
+        available: true,
+        state: "warn",
+        message: "No ZFS pools available",
+      }
+    )
+
+    const unavailable = (title: string): CommandResult => ({
+      ...commandResult(title, ""),
+      returncode: null,
+      error: "command unavailable",
+    })
+    assert.deepEqual(
+      classifyZfsStatus(
+        [unavailable("zpool list"), unavailable("zpool status")],
+        []
+      ),
+      {
+        enabled: true,
+        available: false,
+        state: "warn",
+        message: "ZFS is not available on this host",
+      }
+    )
+  })
+
   it("parses ZFS sizes", () => {
     assert.equal(parseZfsSize("1K"), 1024)
     assert.equal(parseZfsSize("1.5T"), 1.5 * 1024 ** 4)
@@ -400,12 +442,45 @@ describe("status payload", () => {
       )
       assert.equal(status.pools[0].snapshot_used_bytes, 123_904)
       assert.equal(status.commands.length, 6)
+      assert.equal(status.disk_health.enabled, true)
+      assert.equal(status.disk_health.state, "good")
+      assert.equal(status.disk_health.disks.length, 2)
+      assert.equal(status.disk_health.disks[0].temperature_celsius, 34)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {
         delete process.env[FIXTURE_DIR_ENV]
       } else {
         process.env[FIXTURE_DIR_ENV] = previous
+      }
+    }
+  })
+
+  it("does not run or expose ZFS commands when disabled", async () => {
+    const previousFixture = process.env[FIXTURE_DIR_ENV]
+    const previousZfs = process.env.NAZBOARD_ZFS_ENABLED
+    process.env[FIXTURE_DIR_ENV] = fixtureDir
+    process.env.NAZBOARD_ZFS_ENABLED = "false"
+
+    try {
+      const status = await getStatus()
+
+      assert.equal(status.zfs.enabled, false)
+      assert.equal(status.zfs.available, false)
+      assert.equal(status.pools.length, 0)
+      assert.equal(status.commands.length, 0)
+      assert.equal(status.overall.state, "ok")
+      assert.match(status.overall.message, /physical disks report good health/)
+    } finally {
+      if (previousFixture === undefined) {
+        delete process.env[FIXTURE_DIR_ENV]
+      } else {
+        process.env[FIXTURE_DIR_ENV] = previousFixture
+      }
+      if (previousZfs === undefined) {
+        delete process.env.NAZBOARD_ZFS_ENABLED
+      } else {
+        process.env.NAZBOARD_ZFS_ENABLED = previousZfs
       }
     }
   })

@@ -8,16 +8,22 @@ export type {
   CommandResult,
   DatasetProperty,
   DatasetStatus,
+  DiskHealthStatus,
   DiskStatus,
   Issue,
+  MetricState,
   PoolStatus,
+  SmartDiskStatus,
+  SmartMetric,
   SnapshotStatus,
   State,
   StatusPayload,
+  ZfsStatus,
 } from "../../shared/status.js"
 
 export type Selection =
   | { kind: "overview" }
+  | { kind: "disk-health" }
   | { kind: "raw" }
   | { kind: "pool"; id: string }
   | { kind: "dataset"; id: string }
@@ -64,9 +70,11 @@ export function selectionFromSearch(search: string): Selection {
     return { kind: "pool", id: pool }
   }
 
-  return parameters.get("view") === "raw"
-    ? { kind: "raw" }
-    : { kind: "overview" }
+  const view = parameters.get("view")
+  if (view === "disk-health") {
+    return { kind: "disk-health" }
+  }
+  return view === "raw" ? { kind: "raw" } : { kind: "overview" }
 }
 
 export function searchForSelection(selection: Selection) {
@@ -77,6 +85,8 @@ export function searchForSelection(selection: Selection) {
     parameters.set("pool", selection.id)
   } else if (selection.kind === "raw") {
     parameters.set("view", "raw")
+  } else if (selection.kind === "disk-health") {
+    parameters.set("view", "disk-health")
   }
 
   const search = parameters.toString()

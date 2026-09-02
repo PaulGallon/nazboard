@@ -3,6 +3,7 @@ import {
   DatabaseIcon,
   GaugeIcon,
   HardDriveIcon,
+  HeartPulseIcon,
   SquareTerminalIcon,
 } from "lucide-react"
 
@@ -95,50 +96,68 @@ export function AppSidebar({
                   <span>Overview</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Pools</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {status?.pools.map((pool) => (
-                <SidebarMenuItem key={pool.name}>
+              {status?.disk_health.enabled !== false && (
+                <SidebarMenuItem>
                   <SidebarMenuButton
-                    isActive={
-                      selection.kind === "pool" && selection.id === pool.name
-                    }
-                    onClick={() => onNavigate({ kind: "pool", id: pool.name })}
+                    isActive={selection.kind === "disk-health"}
+                    onClick={() => onNavigate({ kind: "disk-health" })}
                   >
-                    <HardDriveIcon />
-                    <span>{pool.name}</span>
+                    <HeartPulseIcon />
+                    <span>Disk health</span>
                   </SidebarMenuButton>
-                  <DatasetTree
-                    datasets={pool.datasets}
-                    selection={selection}
-                    onNavigate={onNavigate}
-                  />
                 </SidebarMenuItem>
-              ))}
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Raw</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={selection.kind === "raw"}
-                  onClick={() => onNavigate({ kind: "raw" })}
-                >
-                  <SquareTerminalIcon />
-                  <span>Command output</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {status?.zfs.enabled !== false && (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel>Pools</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {status?.pools.map((pool) => (
+                    <SidebarMenuItem key={pool.name}>
+                      <SidebarMenuButton
+                        isActive={
+                          selection.kind === "pool" &&
+                          selection.id === pool.name
+                        }
+                        onClick={() =>
+                          onNavigate({ kind: "pool", id: pool.name })
+                        }
+                      >
+                        <HardDriveIcon />
+                        <span>{pool.name}</span>
+                      </SidebarMenuButton>
+                      <DatasetTree
+                        datasets={pool.datasets}
+                        selection={selection}
+                        onNavigate={onNavigate}
+                      />
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Raw</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={selection.kind === "raw"}
+                      onClick={() => onNavigate({ kind: "raw" })}
+                    >
+                      <SquareTerminalIcon />
+                      <span>Command output</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

@@ -1,11 +1,12 @@
 # nazboard
 
 nazboard is a lightweight, read-only web dashboard for at-a-glance ZFS pool,
-dataset, snapshot, and device status.
+dataset, snapshot, and physical disk SMART status.
 
 It serves a Vite React interface and JSON API from a small TypeScript Node.js
-HTTP server. The server uses Node built-ins, runs six fixed OpenZFS commands,
-and never accepts command arguments from the browser.
+HTTP server. The server uses Node built-ins, runs six fixed OpenZFS commands
+plus read-only SMART discovery, and never accepts command arguments from the
+browser.
 
 ## Screenshots
 
@@ -23,8 +24,10 @@ and never accepts command arguments from the browser.
 
 ## Run with Docker
 
-The host must have working ZFS kernel support. The image includes
-`zfsutils-linux`, but it still needs access to the host's `/dev/zfs` device.
+The image supports ZFS and SMART independently. ZFS monitoring is enabled by
+default; when used, the host needs working ZFS kernel support and the container
+needs access to `/dev/zfs`. SMART monitoring needs the physical disk devices
+that should be shown.
 
 Build the image:
 
@@ -40,6 +43,8 @@ docker run --rm \
   --name nazboard \
   -p 127.0.0.1:8080:8080 \
   --device /dev/zfs \
+  --device /dev/sda \
+  --device /dev/nvme0 \
   --read-only \
   --cap-drop ALL \
   --security-opt no-new-privileges \
@@ -50,23 +55,31 @@ docker run --rm \
 Open <http://localhost:8080>. The image includes a health check backed by
 `GET /healthz`.
 
+For a SMART-only host, omit `--device /dev/zfs` and set
+`NAZBOARD_ZFS_ENABLED=false`.
+
 The process runs as UID/GID `10001`. Device permissions differ across hosts;
 some ZFS/container combinations may require adjusted `/dev/zfs` ownership or
-more privileged container settings. Add privileges only when the host requires
-them. To expose the dashboard beyond the host, change the published address and
-put authentication and TLS at a trusted reverse proxy.
+more privileged container settings. Physical disk names and permissions also
+differ; pass each disk with `--device` and ensure the container's `nazboard`
+user can read it. The image adds that user to Debian's `disk` group. Add
+privileges only when the host requires them. To expose the dashboard beyond the
+host, change the published address and put authentication and TLS at a trusted
+reverse proxy.
 
 ## How it works
 
 `GET /api/status` returns:
 
-- `overall`: complete status availability and pool health
+- `overall`: the worst state reported by the enabled monitors
+- `zfs`: whether ZFS monitoring is enabled and available on this host
 - `issues`: command, pool, vdev, disk, and dataset warnings or errors
 - `pools`: capacity, topology, nested datasets, properties, and snapshots
+- `disk_health`: SMART health, live temperature, and important ATA/NVMe metrics
 - `commands`: the fixed commands and their unmodified text output
 
-The server runs these commands with `child_process.execFile` and fixed argument
-arrays:
+The server runs these commands with `child_process.execFile` and controlled
+argument arrays:
 
 ```sh
 zpool status -x
@@ -75,7 +88,26 @@ zpool status
 zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots
 zfs list -H -p -t snapshot -o name,used,refer,creation
 zfs get -H -p -t filesystem,volume,snapshot -o name,property,value,source all
+smartctl --scan-open -j
+smartctl -a -j -d <discovered type> <discovered /dev path>
 ```
+
+The browser cannot supply command arguments. SMART device type and path values
+come only from `smartctl --scan-open`; each discovered physical device is then
+queried once. The dashboard prioritizes the drive's overall SMART assessment,
+live temperature, reallocated/pending/uncorrectable sectors and SATA interface
+errors for ATA disks. For NVMe disks it also shows endurance remaining,
+available spare and media/data-integrity errors. Every displayed metric is
+labelled Good, Bad or Critical.
+
+Temperature uses a drive-reported operating limit when available: the final
+10°C below that limit is Bad and reaching it is Critical. Without a reported
+limit, nazboard uses 50°C and 60°C respectively; an NVMe temperature warning is
+always Critical. NVMe endurance is Bad at 20% remaining and Critical at 10%,
+while available spare uses the drive's own threshold. Any pending,
+uncorrectable, or NVMe media error is Critical. Reallocated sectors and SATA
+interface errors are Bad unless SMART reports the underlying attribute as
+failed.
 
 Successful and failed command results are cached in memory for one minute, and
 concurrent requests share the same in-flight command executions. Nothing is
@@ -96,14 +128,21 @@ HTML.
 
 The server supports these environment variables:
 
-| Variable               | Default                    | Purpose                                                        |
-| ---------------------- | -------------------------- | -------------------------------------------------------------- |
-| `PORT`                 | `8080`                     | HTTP listen port, from 1 to 65535                              |
-| `NAZBOARD_DIST_DIR`    | `<working directory>/dist` | Static frontend directory                                      |
-| `NAZBOARD_FIXTURE_DIR` | unset                      | Read command fixtures from a directory instead of invoking ZFS |
+| Variable                 | Default                    | Purpose                                                                        |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------------------ |
+| `PORT`                   | `8080`                     | HTTP listen port, from 1 to 65535                                              |
+| `NAZBOARD_DIST_DIR`      | `<working directory>/dist` | Static frontend directory                                                      |
+| `NAZBOARD_FIXTURE_DIR`   | unset                      | Read command fixtures from a directory instead of invoking system commands     |
+| `NAZBOARD_SMART_ENABLED` | `true`                     | Set to `false`, `0`, `no`, or `off` to disable SMART monitoring and its UI tab |
+| `NAZBOARD_ZFS_ENABLED`   | `true`                     | Set to `false`, `0`, `no`, or `off` to disable ZFS commands and its UI panels  |
 
 `NAZBOARD_FIXTURE_DIR` is intended for development and screenshots. Do not set
 it in a real deployment.
+
+When ZFS is disabled, nazboard does not invoke `zpool` or `zfs` and hides its
+pool, dataset, and raw-command navigation. When enabled on a host with no pools
+or no ZFS support, the dashboard remains available and shows a No pools state
+instead of failing the status request.
 
 ## Security model
 
@@ -111,7 +150,7 @@ nazboard is intentionally small and read-only, but its status data can still be
 sensitive:
 
 - It exposes raw command output, dataset names, device identifiers, mountpoints,
-  and every property returned by `zfs get all`.
+  every property returned by `zfs get all`, and SMART model/serial data.
 - It implements no authentication, authorization, or TLS. Restrict it to trusted
   administrators or place it behind controls that provide them.
 - It exposes no ZFS write/control endpoint and accepts no browser input for
@@ -170,11 +209,15 @@ On a machine with ZFS, refresh the fixture files with:
 ./scripts/generate-test-data.sh
 ```
 
-The generator captures all six commands into a private staging directory and
+The generator captures all six ZFS commands into a private staging directory and
 replaces the fixtures only after every command succeeds. It redacts leaf device
 paths and serial-based names from both `zpool status` outputs by default. Pool,
 dataset, mountpoint, and other host-specific values may remain, so review every
 fixture before committing it.
+
+The checked-in `smart_*.json` files are synthetic, redacted examples. SMART
+device discovery is dynamic, so refresh and sanitize those fixtures manually
+when expanding SMART test coverage; never commit a real disk serial number.
 
 To capture elsewhere first or intentionally retain device names:
 

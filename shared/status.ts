@@ -1,5 +1,7 @@
 export type State = "ok" | "warn" | "error"
 
+export type MetricState = "good" | "bad" | "critical"
+
 export type CommandResult = {
   title: string
   command: string[]
@@ -55,6 +57,40 @@ export type DiskStatus = {
   checksum_errors: number
 }
 
+export type SmartMetric = {
+  key: string
+  label: string
+  value: string
+  state: MetricState
+  detail: string
+}
+
+export type SmartDiskStatus = {
+  device: string
+  protocol: string
+  model: string
+  serial: string | null
+  capacity_bytes: number | null
+  temperature_celsius: number | null
+  state: MetricState
+  status: string
+  metrics: SmartMetric[]
+}
+
+export type DiskHealthStatus = {
+  enabled: boolean
+  state: MetricState
+  message: string
+  disks: SmartDiskStatus[]
+}
+
+export type ZfsStatus = {
+  enabled: boolean
+  available: boolean
+  state: State
+  message: string
+}
+
 export type VdevStatus = DiskStatus & {
   type: string
   class_name: string
@@ -80,6 +116,8 @@ export type StatusPayload = {
     message: string
   }
   issues: Issue[]
+  zfs: ZfsStatus
   pools: PoolStatus[]
+  disk_health: DiskHealthStatus
   commands: CommandResult[]
 }

@@ -69,3 +69,4 @@ capture() {
 capture docs/screenshot-overview.png http://127.0.0.1:8080/
 capture docs/screenshot-pool.png 'http://127.0.0.1:8080/?pool=storage01'
 capture docs/screenshot-dataset.png 'http://127.0.0.1:8080/?dataset=storage01%2Fbackup'
+capture docs/screenshot-disk-health.png 'http://127.0.0.1:8080/?view=disk-health'
