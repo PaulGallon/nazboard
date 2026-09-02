@@ -84,6 +84,13 @@ export type DiskHealthStatus = {
   disks: SmartDiskStatus[]
 }
 
+export type ZfsStatus = {
+  enabled: boolean
+  available: boolean
+  state: State
+  message: string
+}
+
 export type VdevStatus = DiskStatus & {
   type: string
   class_name: string
@@ -109,6 +116,7 @@ export type StatusPayload = {
     message: string
   }
   issues: Issue[]
+  zfs: ZfsStatus
   pools: PoolStatus[]
   disk_health: DiskHealthStatus
   commands: CommandResult[]

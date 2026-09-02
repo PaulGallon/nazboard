@@ -28,6 +28,7 @@ import type {
   State,
   StatusPayload,
   VdevStatus,
+  ZfsStatus,
 } from "../shared/status.js"
 import { getDiskHealth } from "./smart.js"
 
@@ -36,6 +37,12 @@ const COMMAND_TIMEOUT_MS = 5000
 const COMMAND_CACHE_TTL_MS = 60_000
 const COMMAND_MAX_BUFFER_BYTES = 16 * 1024 * 1024
 export const FIXTURE_DIR_ENV = "NAZBOARD_FIXTURE_DIR"
+
+export function zfsEnabled(environment = process.env) {
+  return !["0", "false", "no", "off"].includes(
+    (environment.NAZBOARD_ZFS_ENABLED ?? "true").trim().toLowerCase()
+  )
+}
 
 function parsePort(value: string) {
   if (!/^\d+$/.test(value)) {
@@ -430,6 +437,75 @@ export function classifyOverall(
   return { state: "warn", message: "ZFS reports attention needed" }
 }
 
+export function classifyZfsStatus(
+  results: CommandResult[],
+  pools: PoolStatus[]
+): ZfsStatus {
+  const health = results.find((result) => result.title === "ZFS health summary")
+  const poolList = results.find((result) => result.title === "zpool list")
+  const poolStatus = results.find((result) => result.title === "zpool status")
+  const combined =
+    `${health?.stdout ?? ""}\n${health?.stderr ?? ""}`.toLowerCase()
+
+  if (pools.length === 0 && combined.includes("no pools available")) {
+    return {
+      enabled: true,
+      available: true,
+      state: "warn",
+      message: "No ZFS pools available",
+    }
+  }
+
+  if (
+    pools.length === 0 &&
+    (!poolList || !commandOk(poolList)) &&
+    (!poolStatus || !commandOk(poolStatus))
+  ) {
+    return {
+      enabled: true,
+      available: false,
+      state: "warn",
+      message: "ZFS is not available on this host",
+    }
+  }
+
+  const overall = classifyOverall(results)
+  return {
+    enabled: true,
+    available: true,
+    ...overall,
+  }
+}
+
+function overallForFeatures(
+  zfs: ZfsStatus,
+  diskHealth: DiskHealthStatus
+): StatusPayload["overall"] {
+  const active: StatusPayload["overall"][] = []
+  if (zfs.enabled) {
+    active.push({ state: zfs.state, message: zfs.message })
+  }
+  if (diskHealth.enabled) {
+    active.push({
+      state:
+        diskHealth.state === "good"
+          ? "ok"
+          : diskHealth.state === "bad"
+            ? "warn"
+            : "error",
+      message: diskHealth.message,
+    })
+  }
+  if (active.length === 0) {
+    return { state: "warn", message: "No monitoring features are enabled" }
+  }
+
+  const severity = { ok: 0, warn: 1, error: 2 } satisfies Record<State, number>
+  return active.reduce((worst, candidate) =>
+    severity[candidate.state] > severity[worst.state] ? candidate : worst
+  )
+}
+
 export function parsePools(results: CommandResult[]): PoolStatus[] {
   const poolList = results.find((result) => result.title === "zpool list")
   if (!poolList || !commandOk(poolList)) {
@@ -812,30 +888,32 @@ function attachPoolDetails(
 }
 
 function collectIssues(
-  overall: StatusPayload["overall"],
+  zfs: ZfsStatus,
   pools: PoolStatus[],
   commands: CommandResult[],
   diskHealth: DiskHealthStatus
 ): Issue[] {
   const issues: Issue[] = []
 
-  if (overall.state !== "ok") {
+  if (zfs.enabled && zfs.state !== "ok") {
     issues.push({
-      severity: overall.state,
+      severity: zfs.state,
       scope: "overall",
       name: "ZFS",
-      message: overall.message,
+      message: zfs.message,
     })
   }
 
-  for (const command of commands) {
-    if (!commandOk(command)) {
-      issues.push({
-        severity: "error",
-        scope: "command",
-        name: command.title,
-        message: command.error ?? `Command exited with ${command.returncode}`,
-      })
+  if (zfs.available) {
+    for (const command of commands) {
+      if (!commandOk(command)) {
+        issues.push({
+          severity: "error",
+          scope: "command",
+          name: command.title,
+          message: command.error ?? `Command exited with ${command.returncode}`,
+        })
+      }
     }
   }
 
@@ -929,31 +1007,43 @@ function collectIssues(
 }
 
 export async function getStatus(): Promise<StatusPayload> {
+  const isZfsEnabled = zfsEnabled()
   const [baseCommands, diskHealth] = await Promise.all([
-    Promise.all(
-      BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
-    ),
+    isZfsEnabled
+      ? Promise.all(
+          BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
+        )
+      : Promise.resolve([]),
     getDiskHealth(runCommand),
   ])
   const datasets = parseDatasets(baseCommands)
   const commands = baseCommands
-  const overall = classifyOverall(commands)
   const pools = attachPoolDetails(
     attachDatasetsToPools(parsePools(commands), datasets),
     parseSnapshots(commands),
     parseVdevs(commands),
     parseZfsProperties(commands)
   )
-  const generatedAt = Math.min(
-    ...baseCommands.map(
-      (command) => (command as ObservedCommandResult)[OBSERVED_AT] ?? Date.now()
-    )
+  const zfs: ZfsStatus = isZfsEnabled
+    ? classifyZfsStatus(commands, pools)
+    : {
+        enabled: false,
+        available: false,
+        state: "ok",
+        message: "ZFS monitoring is disabled",
+      }
+  const overall = overallForFeatures(zfs, diskHealth)
+  const observedTimes = baseCommands.map(
+    (command) => (command as ObservedCommandResult)[OBSERVED_AT] ?? Date.now()
   )
+  const generatedAt =
+    observedTimes.length > 0 ? Math.min(...observedTimes) : Date.now()
 
   return {
     generated_at: new Date(generatedAt).toISOString(),
     overall,
-    issues: collectIssues(overall, pools, commands, diskHealth),
+    issues: collectIssues(zfs, pools, commands, diskHealth),
+    zfs,
     pools,
     disk_health: diskHealth,
     commands,

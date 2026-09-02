@@ -110,47 +110,54 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Pools</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {status?.pools.map((pool) => (
-                <SidebarMenuItem key={pool.name}>
-                  <SidebarMenuButton
-                    isActive={
-                      selection.kind === "pool" && selection.id === pool.name
-                    }
-                    onClick={() => onNavigate({ kind: "pool", id: pool.name })}
-                  >
-                    <HardDriveIcon />
-                    <span>{pool.name}</span>
-                  </SidebarMenuButton>
-                  <DatasetTree
-                    datasets={pool.datasets}
-                    selection={selection}
-                    onNavigate={onNavigate}
-                  />
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Raw</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  isActive={selection.kind === "raw"}
-                  onClick={() => onNavigate({ kind: "raw" })}
-                >
-                  <SquareTerminalIcon />
-                  <span>Command output</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {status?.zfs.enabled !== false && (
+          <>
+            <SidebarGroup>
+              <SidebarGroupLabel>Pools</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {status?.pools.map((pool) => (
+                    <SidebarMenuItem key={pool.name}>
+                      <SidebarMenuButton
+                        isActive={
+                          selection.kind === "pool" &&
+                          selection.id === pool.name
+                        }
+                        onClick={() =>
+                          onNavigate({ kind: "pool", id: pool.name })
+                        }
+                      >
+                        <HardDriveIcon />
+                        <span>{pool.name}</span>
+                      </SidebarMenuButton>
+                      <DatasetTree
+                        datasets={pool.datasets}
+                        selection={selection}
+                        onNavigate={onNavigate}
+                      />
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Raw</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={selection.kind === "raw"}
+                      onClick={() => onNavigate({ kind: "raw" })}
+                    >
+                      <SquareTerminalIcon />
+                      <span>Command output</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
       <SidebarRail />
     </Sidebar>

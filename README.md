@@ -24,9 +24,10 @@ browser.
 
 ## Run with Docker
 
-The host must have working ZFS kernel support. The image includes
-`zfsutils-linux`, but it still needs access to the host's `/dev/zfs` device.
-SMART monitoring also needs the physical disk devices that should be shown.
+The image supports ZFS and SMART independently. ZFS monitoring is enabled by
+default; when used, the host needs working ZFS kernel support and the container
+needs access to `/dev/zfs`. SMART monitoring needs the physical disk devices
+that should be shown.
 
 Build the image:
 
@@ -54,6 +55,9 @@ docker run --rm \
 Open <http://localhost:8080>. The image includes a health check backed by
 `GET /healthz`.
 
+For a SMART-only host, omit `--device /dev/zfs` and set
+`NAZBOARD_ZFS_ENABLED=false`.
+
 The process runs as UID/GID `10001`. Device permissions differ across hosts;
 some ZFS/container combinations may require adjusted `/dev/zfs` ownership or
 more privileged container settings. Physical disk names and permissions also
@@ -67,7 +71,8 @@ reverse proxy.
 
 `GET /api/status` returns:
 
-- `overall`: complete status availability and pool health
+- `overall`: the worst state reported by the enabled monitors
+- `zfs`: whether ZFS monitoring is enabled and available on this host
 - `issues`: command, pool, vdev, disk, and dataset warnings or errors
 - `pools`: capacity, topology, nested datasets, properties, and snapshots
 - `disk_health`: SMART health, live temperature, and important ATA/NVMe metrics
@@ -129,9 +134,15 @@ The server supports these environment variables:
 | `NAZBOARD_DIST_DIR`      | `<working directory>/dist` | Static frontend directory                                                      |
 | `NAZBOARD_FIXTURE_DIR`   | unset                      | Read command fixtures from a directory instead of invoking system commands     |
 | `NAZBOARD_SMART_ENABLED` | `true`                     | Set to `false`, `0`, `no`, or `off` to disable SMART monitoring and its UI tab |
+| `NAZBOARD_ZFS_ENABLED`   | `true`                     | Set to `false`, `0`, `no`, or `off` to disable ZFS commands and its UI panels  |
 
 `NAZBOARD_FIXTURE_DIR` is intended for development and screenshots. Do not set
 it in a real deployment.
+
+When ZFS is disabled, nazboard does not invoke `zpool` or `zfs` and hides its
+pool, dataset, and raw-command navigation. When enabled on a host with no pools
+or no ZFS support, the dashboard remains available and shows a No pools state
+instead of failing the status request.
 
 ## Security model
 

@@ -322,7 +322,13 @@ function Overview({ status }: { status: StatusPayload }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div
+        className={
+          status.zfs.enabled
+            ? "grid gap-4 md:grid-cols-2 xl:grid-cols-5"
+            : "grid gap-4 md:grid-cols-2"
+        }
+      >
         <Card>
           <CardHeader>
             <CardTitle>Health</CardTitle>
@@ -350,35 +356,52 @@ function Overview({ status }: { status: StatusPayload }) {
             </CardContent>
           </Card>
         )}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pools</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {status.pools.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Datasets</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {datasets.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Snapshots</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {snapshotCount}
-          </CardContent>
-        </Card>
+        {status.zfs.enabled && (
+          <>
+            <Card>
+              <CardHeader>
+                <CardTitle>Pools</CardTitle>
+              </CardHeader>
+              <CardContent className="text-3xl font-semibold tabular-nums">
+                {status.pools.length}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Datasets</CardTitle>
+              </CardHeader>
+              <CardContent className="text-3xl font-semibold tabular-nums">
+                {datasets.length}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Snapshots</CardTitle>
+              </CardHeader>
+              <CardContent className="text-3xl font-semibold tabular-nums">
+                {snapshotCount}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
+
+      {status.zfs.enabled && status.pools.length === 0 && (
+        <Card>
+          <CardContent>
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>No pools</EmptyTitle>
+                <EmptyDescription>{status.zfs.message}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </CardContent>
+        </Card>
+      )}
 
       <IssuesCard
         issues={status.issues}
-        description="Warnings and errors across all pools"
+        description="Warnings and errors across active monitors"
         emptyDescription={status.overall.message}
         includeCommands
       />
@@ -915,7 +938,7 @@ function App() {
             <Overview status={status} />
           ) : selection.kind === "disk-health" && status.disk_health.enabled ? (
             <DiskHealthView health={status.disk_health} />
-          ) : selection.kind === "raw" ? (
+          ) : selection.kind === "raw" && status.zfs.enabled ? (
             <RawView commands={status.commands} />
           ) : selectedPool ? (
             <PoolView pool={selectedPool} issues={status.issues} />
@@ -930,7 +953,7 @@ function App() {
               <CheckCircle2Icon />
               <AlertTitle>Selection unavailable</AlertTitle>
               <AlertDescription>
-                Choose another pool or dataset from the sidebar.
+                Choose another available view from the sidebar.
               </AlertDescription>
             </Alert>
           )}

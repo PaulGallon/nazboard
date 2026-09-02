@@ -18,6 +18,7 @@ export type {
   SnapshotStatus,
   State,
   StatusPayload,
+  ZfsStatus,
 } from "../../shared/status.js"
 
 export type Selection =
