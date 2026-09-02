@@ -1,6 +1,6 @@
 export type State = "ok" | "warn" | "error"
 
-export type MetricState = "good" | "bad" | "critical"
+export type MetricState = "healthy" | "warning" | "failed"
 
 export type CommandResult = {
   title: string
@@ -74,6 +74,8 @@ export type SmartDiskStatus = {
   wwn: string | null
   capacity_bytes: number | null
   temperature_celsius: number | null
+  pool_name: string | null
+  vdev_name: string | null
   state: MetricState
   status: string
   metrics: SmartMetric[]

@@ -8,7 +8,7 @@ config:
 	NAME                                                STATE     READ WRITE CKSUM
 	storage01                                           ONLINE       0     0     0
 	  mirror-0                                          ONLINE       0     0     0
-	    disk-1      ONLINE       0     0     0
+	    sda1        ONLINE       0     0     0
 	    disk-2      ONLINE       0     0     0
 	  mirror-1                                          ONLINE       0     0     0
 	    disk-3             ONLINE       0     0     0
@@ -18,7 +18,7 @@ config:
 	    disk-6      ONLINE       0     0     0
 	special	
 	  mirror-4                                          ONLINE       0     0     0
-	    disk-7  ONLINE       0     0     0
+	    nvme0n1  ONLINE       0     0     0
 	    disk-8  ONLINE       0     0     0
 
 errors: No known data errors

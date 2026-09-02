@@ -124,6 +124,22 @@ export function formatBytes(bytes: number | null) {
   return `${value.toFixed(precision)} ${units[unitIndex]}`
 }
 
+export function formatRelativeTime(value: string, now = Date.now()) {
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((now - new Date(value).getTime()) / 1000)
+  )
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds} second${elapsedSeconds === 1 ? "" : "s"} ago`
+  }
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} minute${elapsedMinutes === 1 ? "" : "s"} ago`
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60)
+  return `${elapsedHours} hour${elapsedHours === 1 ? "" : "s"} ago`
+}
+
 export function formatPropertyValue(value: string, propertyName: string) {
   if (value === "" || value === "-") {
     return "-"
