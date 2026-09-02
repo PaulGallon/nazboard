@@ -67,6 +67,11 @@ privileges only when the host requires them. To expose the dashboard beyond the
 host, change the published address and put authentication and TLS at a trusted
 reverse proxy.
 
+The image grants `smartctl`—and only that executable—the `DAC_OVERRIDE` and
+`SYS_ADMIN` file capabilities required to open root-owned NVMe controller nodes
+and issue their read-only admin queries. The nazboard Node.js process remains
+non-root and has no effective capabilities.
+
 ## How it works
 
 `GET /api/status` returns:
