@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { DiskHealthView } from "@/components/disk-health"
 import { PanelHelp } from "@/components/panel-help"
 import { DatasetUsageDonut, UsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -273,9 +274,9 @@ function IssuesCard({
         <CardTitle>Issues</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
         <CardAction>
-          <PanelHelp source="All fixed status commands plus nazboard usage thresholds">
+          <PanelHelp source="OpenZFS and SMART status plus nazboard health thresholds">
             {includeCommands
-              ? "Command failures, non-ONLINE pools, vdevs or disks, device error counters, and datasets at or above 75% usage."
+              ? "Command failures, SMART warnings, non-ONLINE pools, vdevs or disks, device error counters, and datasets at or above 75% usage."
               : "Non-ONLINE pool, vdev, or disk states, device error counters, and datasets in this pool at or above 75% usage."}{" "}
             Usage reaches error severity at 85%.
           </PanelHelp>
@@ -321,7 +322,7 @@ function Overview({ status }: { status: StatusPayload }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card>
           <CardHeader>
             <CardTitle>Health</CardTitle>
@@ -330,6 +331,25 @@ function Overview({ status }: { status: StatusPayload }) {
             {stateLabel(status.overall.state)}
           </CardContent>
         </Card>
+        {status.disk_health.enabled && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Physical disks</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-semibold tabular-nums">
+                {status.disk_health.disks.length}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {status.disk_health.state === "good"
+                  ? "Good"
+                  : status.disk_health.state === "bad"
+                    ? "Needs attention"
+                    : "Critical"}
+              </div>
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>Pools</CardTitle>
@@ -830,9 +850,11 @@ function App() {
   const title =
     selection.kind === "overview"
       ? "Overview"
-      : selection.kind === "raw"
-        ? "Raw command output"
-        : selection.id
+      : selection.kind === "disk-health"
+        ? "Disk health"
+        : selection.kind === "raw"
+          ? "Raw command output"
+          : selection.id
 
   React.useEffect(() => {
     document.title = `${title} · nazboard`
@@ -891,6 +913,8 @@ function App() {
             <LoadingView />
           ) : selection.kind === "overview" ? (
             <Overview status={status} />
+          ) : selection.kind === "disk-health" && status.disk_health.enabled ? (
+            <DiskHealthView health={status.disk_health} />
           ) : selection.kind === "raw" ? (
             <RawView commands={status.commands} />
           ) : selectedPool ? (
@@ -914,7 +938,7 @@ function App() {
             <ClockIcon />
             <span>Refreshes every 60 seconds</span>
             <TerminalIcon />
-            <span>Read-only ZFS commands</span>
+            <span>Read-only system commands</span>
           </div>
         </main>
       </SidebarInset>

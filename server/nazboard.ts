@@ -20,6 +20,7 @@ import type {
   CommandResult,
   DatasetProperty,
   DatasetStatus,
+  DiskHealthStatus,
   DiskStatus,
   Issue,
   PoolStatus,
@@ -28,6 +29,7 @@ import type {
   StatusPayload,
   VdevStatus,
 } from "../shared/status.js"
+import { getDiskHealth } from "./smart.js"
 
 const HOST = "0.0.0.0"
 const COMMAND_TIMEOUT_MS = 5000
@@ -169,6 +171,15 @@ const FIXTURE_FILES = new Map<string, string>([
       "all",
     ].join("\0"),
     "zfs_get_all.txt",
+  ],
+  [["smartctl", "--scan-open", "-j"].join("\0"), "smart_scan.json"],
+  [
+    ["smartctl", "-a", "-j", "-d", "sat", "/dev/sda"].join("\0"),
+    "smart_sda.json",
+  ],
+  [
+    ["smartctl", "-a", "-j", "-d", "nvme", "/dev/nvme0"].join("\0"),
+    "smart_nvme0.json",
   ],
 ])
 
@@ -337,7 +348,7 @@ export async function runCommand(
           stderr,
           error:
             "code" in error && error.code === "ENOENT"
-              ? `'${command[0]}' was not found in PATH. Install zfsutils-linux or use the nazboard container image.`
+              ? `'${command[0]}' was not found in PATH. Install ${command[0] === "smartctl" ? "smartmontools" : "zfsutils-linux"} or use the nazboard container image.`
               : error.killed && error.signal === "SIGTERM"
                 ? `Command timed out after ${COMMAND_TIMEOUT_MS / 1000} seconds.`
                 : `Failed to execute command: ${error.message}`,
@@ -803,7 +814,8 @@ function attachPoolDetails(
 function collectIssues(
   overall: StatusPayload["overall"],
   pools: PoolStatus[],
-  commands: CommandResult[]
+  commands: CommandResult[],
+  diskHealth: DiskHealthStatus
 ): Issue[] {
   const issues: Issue[] = []
 
@@ -824,6 +836,33 @@ function collectIssues(
         name: command.title,
         message: command.error ?? `Command exited with ${command.returncode}`,
       })
+    }
+  }
+
+  if (diskHealth.enabled) {
+    if (diskHealth.disks.length === 0) {
+      issues.push({
+        severity: diskHealth.state === "critical" ? "error" : "warn",
+        scope: "disk",
+        name: "SMART disk health",
+        message: diskHealth.message,
+      })
+    }
+    for (const disk of diskHealth.disks) {
+      if (disk.state !== "good") {
+        const failingMetrics = disk.metrics
+          .filter((metric) => metric.state !== "good")
+          .map((metric) => metric.label.toLowerCase())
+        issues.push({
+          severity: disk.state === "critical" ? "error" : "warn",
+          scope: "disk",
+          name: disk.model,
+          message:
+            failingMetrics.length > 0
+              ? `${failingMetrics.join(", ")} need attention (${disk.device})`
+              : `${disk.status} (${disk.device})`,
+        })
+      }
     }
   }
 
@@ -890,9 +929,12 @@ function collectIssues(
 }
 
 export async function getStatus(): Promise<StatusPayload> {
-  const baseCommands = await Promise.all(
-    BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
-  )
+  const [baseCommands, diskHealth] = await Promise.all([
+    Promise.all(
+      BASE_COMMANDS.map(([title, command]) => runCommand(title, command))
+    ),
+    getDiskHealth(runCommand),
+  ])
   const datasets = parseDatasets(baseCommands)
   const commands = baseCommands
   const overall = classifyOverall(commands)
@@ -911,8 +953,9 @@ export async function getStatus(): Promise<StatusPayload> {
   return {
     generated_at: new Date(generatedAt).toISOString(),
     overall,
-    issues: collectIssues(overall, pools, commands),
+    issues: collectIssues(overall, pools, commands, diskHealth),
     pools,
+    disk_health: diskHealth,
     commands,
   }
 }

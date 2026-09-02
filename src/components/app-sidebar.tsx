@@ -3,6 +3,7 @@ import {
   DatabaseIcon,
   GaugeIcon,
   HardDriveIcon,
+  HeartPulseIcon,
   SquareTerminalIcon,
 } from "lucide-react"
 
@@ -95,6 +96,17 @@ export function AppSidebar({
                   <span>Overview</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {status?.disk_health.enabled !== false && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    isActive={selection.kind === "disk-health"}
+                    onClick={() => onNavigate({ kind: "disk-health" })}
+                  >
+                    <HeartPulseIcon />
+                    <span>Disk health</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -53,6 +53,7 @@ jobs:
               ["Overview", "screenshot-overview.png"],
               ["Pool", "screenshot-pool.png"],
               ["Dataset", "screenshot-dataset.png"],
+              ["Disk health", "screenshot-disk-health.png"],
             ]
 
             let pullNumber = workflowRun.pull_requests?.[0]?.number

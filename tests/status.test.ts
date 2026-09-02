@@ -24,6 +24,7 @@ describe("status presentation", () => {
   it("round-trips dashboard selections through the query string", () => {
     const selections = [
       { kind: "overview" } as const,
+      { kind: "disk-health" } as const,
       { kind: "raw" } as const,
       { kind: "pool", id: "storage 01" } as const,
       { kind: "dataset", id: "storage01/backups" } as const,

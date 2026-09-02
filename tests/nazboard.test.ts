@@ -400,6 +400,10 @@ describe("status payload", () => {
       )
       assert.equal(status.pools[0].snapshot_used_bytes, 123_904)
       assert.equal(status.commands.length, 6)
+      assert.equal(status.disk_health.enabled, true)
+      assert.equal(status.disk_health.state, "good")
+      assert.equal(status.disk_health.disks.length, 2)
+      assert.equal(status.disk_health.disks[0].temperature_celsius, 34)
       assert.ok(status.issues.some((issue) => issue.name === "storage01"))
     } finally {
       if (previous === undefined) {
