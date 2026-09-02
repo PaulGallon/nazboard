@@ -118,7 +118,7 @@ describe("SMART disk health", () => {
     )
   })
 
-  it("keeps a passing disk with missing temperature in Warning", () => {
+  it("does not warn when a passing disk does not support temperature", () => {
     const disk = parseSmartDisk(
       { name: "/dev/sdh", type: "sat", protocol: "ATA" },
       result({
@@ -128,8 +128,11 @@ describe("SMART disk health", () => {
       })
     )
 
-    assert.equal(disk.state, "warning")
-    assert.equal(diskAttentionSummary(disk), "temperature unavailable")
+    assert.equal(disk.state, "healthy")
+    assert.equal(
+      disk.metrics.find((metric) => metric.key === "temperature"),
+      undefined
+    )
     assert.equal(
       disk.metrics.find((metric) => metric.key === "smart-status")?.value,
       "Passed"
@@ -192,6 +195,7 @@ describe("SMART disk health", () => {
             device: { protocol: "ATA" },
             model_name: "Warning disk",
             smart_status: { passed: true },
+            temperature: { current: 0 },
           })
     })
 

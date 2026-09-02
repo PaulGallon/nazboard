@@ -238,7 +238,11 @@ function countMetric(
 function temperatureMetric(
   temperature: number | null,
   document: JsonObject
-): SmartMetric {
+): SmartMetric | null {
+  const temperatureData = object(document.temperature)
+  if (temperature === null && !temperatureData) {
+    return null
+  }
   if (temperature === null) {
     return {
       key: "temperature",
@@ -249,7 +253,6 @@ function temperatureMetric(
     }
   }
 
-  const temperatureData = object(document.temperature)
   const limit = number(temperatureData?.op_limit_max)
   const nvmeWarning = number(
     object(document.nvme_smart_health_information_log)?.critical_warning
@@ -457,9 +460,10 @@ export function parseSmartDisk(
     reportedTemperature !== null && reportedTemperature > 0
       ? reportedTemperature
       : null
+  const temperatureHealth = temperatureMetric(temperature, document)
   const metrics = [
     overallMetric(document),
-    temperatureMetric(temperature, document),
+    ...(temperatureHealth ? [temperatureHealth] : []),
     ...ataMetrics(document),
     ...nvmeMetrics(document),
   ]

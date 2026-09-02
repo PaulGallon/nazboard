@@ -84,7 +84,7 @@ function membership(disk: SmartDiskStatus) {
 
 function temperatureStatus(disk: SmartDiskStatus, metric?: SmartMetric) {
   if (disk.temperature_celsius === null) {
-    return "Temperature sensor unavailable"
+    return metric ? "Temperature sensor unavailable" : null
   }
   return metric?.state === "warning" ? "Elevated" : null
 }
@@ -283,7 +283,9 @@ export function DiskHealthView({ health }: { health: DiskHealthStatus }) {
                   <div className="max-w-36 text-right">
                     <div className="font-heading text-xl font-semibold tabular-nums">
                       {disk.temperature_celsius === null
-                        ? "Temp unavailable"
+                        ? temperature
+                          ? "Temp unavailable"
+                          : "Not supported"
                         : `${disk.temperature_celsius}°C`}
                     </div>
                     {temperatureMessage &&
