@@ -204,13 +204,18 @@ export function DiskHealthView({ health }: { health: DiskHealthStatus }) {
       device.startsWith("mapper/rbd") ||
       device.startsWith("mapper/vmware") ||
       device.startsWith("disk/by-id/scsi-*-rbd") ||
-      device.startsWith("by-path/") && (modelLower.includes("longhorn") || modelLower.includes("rbd"))
+      (device.startsWith("by-path/") &&
+        (modelLower.includes("longhorn") || modelLower.includes("rbd")))
     ) {
       return true
     }
 
     // Exclude VMware/VirtualBox/other virtualization virtual disks by model name
-    if (["vmware vscsi", "vmware sata", "virtualbox hdd", "qemu-harvester"].some((pattern) => modelLower.includes(pattern))) {
+    if (
+      ["vmware vscsi", "vmware sata", "virtualbox hdd", "qemu-harvester"].some(
+        (pattern) => modelLower.includes(pattern)
+      )
+    ) {
       return true
     }
 
