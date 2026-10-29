@@ -42,7 +42,7 @@ concurrency:
 jobs:
   preview:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name != 'pull_request' && vars.LOCAL_RUNNERS_ENABLED == 'true' && 'nazboard' || 'ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -56,6 +56,12 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Check and build
         run: npm run check
+      - name: Install Chrome on local runner
+        if: runner.environment == 'self-hosted'
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/google-chrome.deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y "$RUNNER_TEMP/google-chrome.deb"
       - name: Capture screenshots
         run: ./scripts/capture-screenshots.sh
       - name: Prepare screenshot preview
@@ -73,7 +79,7 @@ jobs:
 
   update:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name != 'pull_request' && vars.LOCAL_RUNNERS_ENABLED == 'true' && 'nazboard' || 'ubuntu-latest' }}
     timeout-minutes: 15
     permissions:
       contents: write
@@ -89,6 +95,12 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Check and build
         run: npm run check
+      - name: Install Chrome on local runner
+        if: runner.environment == 'self-hosted'
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/google-chrome.deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y "$RUNNER_TEMP/google-chrome.deb"
       - name: Capture screenshots
         run: ./scripts/capture-screenshots.sh
       - name: Commit screenshots
