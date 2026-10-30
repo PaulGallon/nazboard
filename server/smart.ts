@@ -139,7 +139,10 @@ export function parseBlockIdentities(result: CommandResult): BlockIdentity[] {
   })
 }
 
-export function isVirtualDisk(device: string, ...identities: (string | null | undefined)[]) {
+export function isVirtualDisk(
+  device: string,
+  ...identities: (string | null | undefined)[]
+) {
   const path = device.toLowerCase()
   const identity = identities.filter(Boolean).join(" ").toLowerCase()
   return (
@@ -589,10 +592,14 @@ export async function getDiskHealth(
         )
       })
     )
-  ).filter((disk) => !isVirtualDisk(disk.device, disk.manufacturer, disk.model)).sort(
-    (left, right) =>
-      DISK_STATE_PRIORITY[left.state] - DISK_STATE_PRIORITY[right.state]
   )
+    .filter(
+      (disk) => !isVirtualDisk(disk.device, disk.manufacturer, disk.model)
+    )
+    .sort(
+      (left, right) =>
+        DISK_STATE_PRIORITY[left.state] - DISK_STATE_PRIORITY[right.state]
+    )
   const state =
     disks.length === 0 ? "warning" : worstState(disks.map((disk) => disk.state))
   const attention = disks.filter((disk) => disk.state !== "healthy")

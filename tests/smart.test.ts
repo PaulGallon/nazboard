@@ -306,7 +306,13 @@ describe("SMART disk health", () => {
 })
 
 it("recognizes virtual identities without hiding physical disks lacking SMART", () => {
-  for (const model of ["IET VIRTUAL-DISK", "QEMU HARDDISK", "VMware Virtual disk", "VBOX HARDDISK", "LIO-ORG Longhorn"]) {
+  for (const model of [
+    "IET VIRTUAL-DISK",
+    "QEMU HARDDISK",
+    "VMware Virtual disk",
+    "VBOX HARDDISK",
+    "LIO-ORG Longhorn",
+  ]) {
     assert.equal(isVirtualDisk("/dev/sda", model), true, model)
   }
   assert.equal(isVirtualDisk("/dev/vda"), true)
@@ -316,16 +322,28 @@ it("recognizes virtual identities without hiding physical disks lacking SMART", 
 
 it("excludes virtual SMART results before calculating health", async () => {
   const health = await getDiskHealth(async (_title, command) => {
-    if (command.includes("--scan-open")) return result({ devices: [
-      { name: "/dev/sda", type: "scsi" },
-      { name: "/dev/sdb", type: "ata" },
-    ] })
+    if (command.includes("--scan-open"))
+      return result({
+        devices: [
+          { name: "/dev/sda", type: "scsi" },
+          { name: "/dev/sdb", type: "ata" },
+        ],
+      })
     if (command[0] === "lsblk") return result({ blockdevices: [] })
-    return result(command.includes("/dev/sda")
-      ? { vendor: "IET", product: "VIRTUAL-DISK", smart_support: { available: false } }
-      : { model_name: "Samsung SSD", smart_status: { passed: true } })
+    return result(
+      command.includes("/dev/sda")
+        ? {
+            vendor: "IET",
+            product: "VIRTUAL-DISK",
+            smart_support: { available: false },
+          }
+        : { model_name: "Samsung SSD", smart_status: { passed: true } }
+    )
   })
-  assert.deepEqual(health.disks.map((disk) => disk.device), ["/dev/sdb"])
+  assert.deepEqual(
+    health.disks.map((disk) => disk.device),
+    ["/dev/sdb"]
+  )
   assert.equal(health.state, "healthy")
   assert.equal(health.message, "All 1 physical disks report good health.")
 })
