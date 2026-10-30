@@ -187,51 +187,9 @@ function DiskDetails({ disk }: { disk: SmartDiskStatus }) {
 }
 
 export function DiskHealthView({ health }: { health: DiskHealthStatus }) {
-  // Filter out Longhorn virtual disks and other non-physical devices
-  const isVirtualDisk = (disk: SmartDiskStatus): boolean => {
-    if (!disk.device) {
-      return false
-    }
-
-    // Skip loop devices, mapper devices with longhorn/RBD prefixes, etc.
-    const device = disk.device.replace(/^\/dev\//, "").toLowerCase()
-    const modelLower = (disk.model ?? "").toLowerCase()
-
-    // Exclude known virtual disk patterns
-    if (
-      device.startsWith("loop") ||
-      device.startsWith("mapper/longhorn") ||
-      device.startsWith("mapper/rbd") ||
-      device.startsWith("mapper/vmware") ||
-      device.startsWith("disk/by-id/scsi-*-rbd") ||
-      (device.startsWith("by-path/") &&
-        (modelLower.includes("longhorn") || modelLower.includes("rbd")))
-    ) {
-      return true
-    }
-
-    // Exclude VMware/VirtualBox/other virtualization virtual disks by model name
-    if (
-      ["vmware vscsi", "vmware sata", "virtualbox hdd", "qemu-harvester"].some(
-        (pattern) => modelLower.includes(pattern)
-      )
-    ) {
-      return true
-    }
-
-    // Exclude other obvious virtual disks
-    if (/^(nvme|sata|scsi|mtd)-simulated/.test(device)) {
-      return true
-    }
-
-    return false
-  }
-
-  const disks = [...health.disks]
-    .filter((disk) => !isVirtualDisk(disk))
-    .sort(
-      (left, right) => STATE_PRIORITY[left.state] - STATE_PRIORITY[right.state]
-    )
+  const disks = [...health.disks].sort(
+    (left, right) => STATE_PRIORITY[left.state] - STATE_PRIORITY[right.state]
+  )
   const firstAttention = disks.find((disk) => disk.state !== "healthy")
 
   return (
