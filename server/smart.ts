@@ -139,6 +139,19 @@ export function parseBlockIdentities(result: CommandResult): BlockIdentity[] {
   })
 }
 
+export function isVirtualDisk(device: string, ...identities: (string | null | undefined)[]) {
+  const path = device.toLowerCase()
+  const identity = identities.filter(Boolean).join(" ").toLowerCase()
+  return (
+    /^\/dev\/(?:loop\d|ram\d|zram\d|zd\d|rbd\d|nbd\d|vd[a-z])/.test(path) ||
+    /(?:longhorn|rbd|vmware)/.test(path) ||
+    /\b(?:longhorn|qemu|vmware|vbox|virtualbox)\b/.test(identity) ||
+    /\bvirtual[ _-]*(?:disk|hd|hdd)\b/.test(identity) ||
+    /\b(?:ceph|rbd)\b/.test(identity) ||
+    /^(?:\/dev\/)?(?:nvme|sata|scsi|mtd)-simulated/.test(path)
+  )
+}
+
 function identityForDevice(device: SmartDevice, identities: BlockIdentity[]) {
   return (
     identities.find((identity) => identity.path === device.name) ??
@@ -533,8 +546,11 @@ export async function getDiskHealth(
     runCommand("SMART device scan", SMART_SCAN_COMMAND),
     runCommand("Block device identity", BLOCK_DEVICE_COMMAND),
   ])
-  const devices = parseDevices(scan)
   const identities = parseBlockIdentities(blockDevices)
+  const devices = parseDevices(scan).filter((device) => {
+    const identity = identityForDevice(device, identities)
+    return !isVirtualDisk(device.name, identity?.manufacturer, identity?.model)
+  })
   if (!parseJson(scan)) {
     return {
       enabled: true,
@@ -573,7 +589,7 @@ export async function getDiskHealth(
         )
       })
     )
-  ).sort(
+  ).filter((disk) => !isVirtualDisk(disk.device, disk.manufacturer, disk.model)).sort(
     (left, right) =>
       DISK_STATE_PRIORITY[left.state] - DISK_STATE_PRIORITY[right.state]
   )
