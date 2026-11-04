@@ -442,51 +442,30 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="max-w-sm">
-        <CardHeader>
-          <CardTitle>Health</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center gap-3">
-          <HeartIcon
-            aria-hidden="true"
-            className={
-              pool.health === "ONLINE"
-                ? "size-8 fill-current text-chart-2"
-                : pool.health === "DEGRADED"
-                  ? "size-8 fill-current text-amber-500"
-                  : "size-8 fill-current text-destructive"
-            }
-          />
-          <span className="font-semibold">{pool.health}</span>
-        </CardContent>
-      </Card>
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          { title: "Scan / scrub", value: pool.scan },
-          { title: "Removal", value: pool.removal },
-        ].map(({ title, value }) => (
-          <Card key={title}>
-            <CardHeader>
-              <CardTitle>{title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap">
-                {value ?? "No information reported"}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <IssuesCard
-        issues={poolIssues}
-        emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
-      />
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle>Pool capacity</CardTitle>
           <CardDescription>
             {formatBytes(pool.size_bytes)} total pool size
           </CardDescription>
+          <CardAction>
+            <div
+              className="flex items-center gap-2"
+              aria-label={`Pool health: ${pool.health}`}
+            >
+              <HeartIcon
+                aria-hidden="true"
+                className={
+                  pool.health === "ONLINE"
+                    ? "size-8 fill-current text-chart-2"
+                    : pool.health === "DEGRADED"
+                      ? "size-8 fill-current text-amber-500"
+                      : "size-8 fill-current text-destructive"
+                }
+              />
+              <span className="font-semibold">{pool.health}</span>
+            </div>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <span className="font-semibold tabular-nums">
@@ -513,6 +492,27 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
           </div>
         </CardContent>
       </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        {[
+          { title: "Scan / scrub", value: pool.scan },
+          { title: "Removal", value: pool.removal },
+        ].map(({ title, value }) => (
+          <Card key={title}>
+            <CardHeader>
+              <CardTitle>{title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap">
+                {value ?? "No information reported"}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <IssuesCard
+        issues={poolIssues}
+        emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
+      />
 
       <Card>
         <CardHeader>
