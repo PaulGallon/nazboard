@@ -316,13 +316,13 @@ function IssuesCard({
             {issues.map((issue) => (
               <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
                 {issue.severity === "warn" ? (
-                  <TriangleAlertIcon className="text-amber-500" />
+                  <TriangleAlertIcon className="size-5 text-amber-500" />
                 ) : issue.severity === "error" ? (
-                  <AlertCircleIcon className="text-destructive" />
+                  <AlertCircleIcon className="size-5 text-destructive" />
                 ) : issue.severity === "info" ? (
-                  <InfoIcon className="text-sky-500" />
+                  <InfoIcon className="size-5 text-sky-500" />
                 ) : (
-                  <CheckCircle2Icon className="text-chart-2" />
+                  <CheckCircle2Icon className="size-5 text-chart-2" />
                 )}
                 <AlertTitle>
                   <span className="sr-only">
