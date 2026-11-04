@@ -457,13 +457,12 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>Pool capacity</CardTitle>
-          <CardDescription>
-            {formatBytes(pool.size_bytes)} total pool size
-          </CardDescription>
-          <CardAction>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Health</CardTitle>
+          </CardHeader>
+          <CardContent>
             <div
               className="flex items-center gap-2"
               aria-label={`Pool health: ${pool.health}`}
@@ -480,48 +479,56 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
               />
               <span className="font-semibold">{pool.health}</span>
             </div>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <span className="font-semibold tabular-nums">
-            {pool.used_percent.toFixed(0)}% used
-          </span>
-          <div
-            role="progressbar"
-            aria-label="Pool capacity used"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={pool.used_percent}
-            className="h-3 overflow-hidden rounded-full bg-muted"
-          >
+          </CardContent>
+        </Card>
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Pool capacity</CardTitle>
+            <CardDescription>
+              {formatBytes(pool.size_bytes)} total pool size
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <span className="font-semibold tabular-nums">
+              {pool.used_percent.toFixed(0)}% used
+            </span>
             <div
-              className="h-full bg-chart-3"
-              style={{
-                width: `${Math.max(0, Math.min(100, pool.used_percent))}%`,
-              }}
-            />
-          </div>
-          <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
-            <span>{formatBytes(pool.allocated_bytes)} used</span>
-            <span>{formatBytes(pool.free_bytes)} available</span>
-          </div>
-        </CardContent>
-      </Card>
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>Scan</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <p className="text-3xl font-semibold tabular-nums">
-            {scrubDays === null
-              ? "No completed scrub recorded"
-              : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} since last scrub`}
-          </p>
-          <p className="whitespace-pre-wrap text-muted-foreground">
-            {pool.scan ?? "No scan information reported"}
-          </p>
-        </CardContent>
-      </Card>
+              role="progressbar"
+              aria-label="Pool capacity used"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pool.used_percent}
+              className="h-3 overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full bg-chart-3"
+                style={{
+                  width: `${Math.max(0, Math.min(100, pool.used_percent))}%`,
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
+              <span>{formatBytes(pool.allocated_bytes)} used</span>
+              <span>{formatBytes(pool.free_bytes)} available</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Scan</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <p className="text-3xl font-semibold tabular-nums">
+              {scrubDays === null
+                ? "No completed scrub recorded"
+                : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} since last scrub`}
+            </p>
+            <p className="whitespace-pre-wrap text-muted-foreground">
+              {pool.scan ?? "No scan information reported"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
       <IssuesCard
         issues={
           pool.removal?.trim() &&
