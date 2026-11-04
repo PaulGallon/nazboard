@@ -102,7 +102,7 @@ function statusVariant(
     return "destructive"
   }
   if (state === "warn") {
-    return "outline"
+    return "warning"
   }
   return "secondary"
 }
