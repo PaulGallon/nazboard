@@ -1,6 +1,7 @@
 import * as React from "react"
 import {
   AlertCircleIcon,
+  TriangleAlertIcon,
   CheckIcon,
   ChevronDownIcon,
   CheckCircle2Icon,
@@ -314,22 +315,27 @@ function IssuesCard({
           <div className="flex flex-col gap-2">
             {issues.map((issue) => (
               <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
-                {issue.severity === "info" ? <InfoIcon /> : <AlertCircleIcon />}
-                <AlertTitle className="flex items-center gap-2">
-                  {issue.name !== poolName && issue.name}
-                  <Badge
-                    variant={
-                      issue.severity === "info"
-                        ? "secondary"
-                        : statusVariant(issue.severity)
-                    }
-                  >
+                {issue.severity === "warn" ? (
+                  <TriangleAlertIcon className="text-amber-500" />
+                ) : issue.severity === "error" ? (
+                  <AlertCircleIcon className="text-destructive" />
+                ) : issue.severity === "info" ? (
+                  <InfoIcon className="text-sky-500" />
+                ) : (
+                  <CheckCircle2Icon className="text-chart-2" />
+                )}
+                <AlertTitle>
+                  <span className="sr-only">
                     {issue.severity === "info"
                       ? "Info"
                       : stateLabel(issue.severity)}
-                  </Badge>
+                    :{" "}
+                  </span>
+                  {issue.name !== poolName ? issue.name : issue.message}
                 </AlertTitle>
-                <AlertDescription>{issue.message}</AlertDescription>
+                {issue.name !== poolName && (
+                  <AlertDescription>{issue.message}</AlertDescription>
+                )}
               </Alert>
             ))}
           </div>
