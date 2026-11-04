@@ -457,14 +457,16 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]">
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Health</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-1 items-center justify-center">
             <div
-              className="flex items-center gap-2"
+              className="flex items-center justify-center"
+              role="img"
+              title={pool.health}
               aria-label={`Pool health: ${pool.health}`}
             >
               <HeartIcon
@@ -477,21 +479,26 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
                       : "size-8 fill-current text-destructive"
                 }
               />
-              <span className="font-semibold">{pool.health}</span>
             </div>
           </CardContent>
         </Card>
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Pool capacity</CardTitle>
-            <CardDescription>
-              {formatBytes(pool.size_bytes)} total pool size
-            </CardDescription>
+            <CardAction>
+              <HardDriveIcon
+                aria-hidden="true"
+                className="size-5 text-muted-foreground"
+              />
+            </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <span className="font-semibold tabular-nums">
+            <span className="text-3xl font-semibold tabular-nums">
               {pool.used_percent.toFixed(0)}% used
             </span>
+            <p className="text-muted-foreground">
+              {formatBytes(pool.size_bytes)} total pool size
+            </p>
             <div
               role="progressbar"
               aria-label="Pool capacity used"
@@ -516,8 +523,14 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Scan</CardTitle>
+            <CardAction>
+              <ClockIcon
+                aria-hidden="true"
+                className="size-5 text-muted-foreground"
+              />
+            </CardAction>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
+          <CardContent className="flex flex-col gap-3">
             <p className="text-3xl font-semibold tabular-nums">
               {scrubDays === null
                 ? "No completed scrub recorded"
