@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   ClockIcon,
   HardDriveIcon,
+  InfoIcon,
   HeartIcon,
   TerminalIcon,
 } from "lucide-react"
@@ -280,7 +281,7 @@ function IssuesCard({
   emptyDescription,
   includeCommands = false,
 }: {
-  issues: Issue[]
+  issues: (Omit<Issue, "severity"> & { severity: State | "info" })[]
   description?: string
   emptyDescription: string
   includeCommands?: boolean
@@ -311,11 +312,19 @@ function IssuesCard({
           <div className="flex flex-col gap-2">
             {issues.map((issue) => (
               <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
-                <AlertCircleIcon />
+                {issue.severity === "info" ? <InfoIcon /> : <AlertCircleIcon />}
                 <AlertTitle className="flex items-center gap-2">
                   {issue.name}
-                  <Badge variant={statusVariant(issue.severity)}>
-                    {stateLabel(issue.severity)}
+                  <Badge
+                    variant={
+                      issue.severity === "info"
+                        ? "secondary"
+                        : statusVariant(issue.severity)
+                    }
+                  >
+                    {issue.severity === "info"
+                      ? "Info"
+                      : stateLabel(issue.severity)}
                   </Badge>
                 </AlertTitle>
                 <AlertDescription>{issue.message}</AlertDescription>
@@ -427,6 +436,12 @@ function Overview({ status }: { status: StatusPayload }) {
 }
 
 function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
+  const scrubTimestamp = pool.last_scrub_at
+    ? Date.parse(pool.last_scrub_at)
+    : NaN
+  const scrubDays = Number.isFinite(scrubTimestamp)
+    ? Math.max(0, Math.floor((Date.now() - scrubTimestamp) / 86_400_000))
+    : null
   const diskNames = new Set(
     pool.vdevs.flatMap((vdev) => vdev.disks.map((disk) => disk.name))
   )
@@ -492,25 +507,36 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
           </div>
         </CardContent>
       </Card>
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          { title: "Scan", value: pool.scan },
-          { title: "Removal", value: pool.removal },
-        ].map(({ title, value }) => (
-          <Card key={title}>
-            <CardHeader>
-              <CardTitle>{title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap">
-                {value ?? "No information reported"}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle>Scan</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p className="text-3xl font-semibold tabular-nums">
+            {scrubDays === null
+              ? "No completed scrub recorded"
+              : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} since last scrub`}
+          </p>
+          <p className="whitespace-pre-wrap text-muted-foreground">
+            {pool.scan ?? "No scan information reported"}
+          </p>
+        </CardContent>
+      </Card>
       <IssuesCard
-        issues={poolIssues}
+        issues={
+          pool.removal?.trim() &&
+          pool.removal.trim().toLowerCase() !== "none requested"
+            ? [
+                ...poolIssues,
+                {
+                  severity: "info",
+                  scope: "pool",
+                  name: pool.name,
+                  message: pool.removal,
+                },
+              ]
+            : poolIssues
+        }
         emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
       />
 
