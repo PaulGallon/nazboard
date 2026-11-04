@@ -6,13 +6,14 @@ import {
   CheckCircle2Icon,
   ClockIcon,
   HardDriveIcon,
+  HeartIcon,
   TerminalIcon,
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { DiskHealthView } from "@/components/disk-health"
 import { PanelHelp } from "@/components/panel-help"
-import { DatasetUsageDonut, UsageDonut } from "@/components/usage-donut"
+import { DatasetUsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -426,8 +427,6 @@ function Overview({ status }: { status: StatusPayload }) {
 }
 
 function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
-  const datasets = flattenDatasets(pool.datasets)
-  const snapshots = datasets.flatMap((dataset) => dataset.snapshots)
   const diskNames = new Set(
     pool.vdevs.flatMap((vdev) => vdev.disks.map((disk) => disk.name))
   )
@@ -443,40 +442,24 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Health</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {pool.health}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Vdevs</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {pool.vdevs.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Datasets</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {datasets.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Snapshots</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {snapshots.length}
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="max-w-sm">
+        <CardHeader>
+          <CardTitle>Health</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center gap-3">
+          <HeartIcon
+            aria-hidden="true"
+            className={
+              pool.health === "ONLINE"
+                ? "size-8 fill-current text-chart-2"
+                : pool.health === "DEGRADED"
+                  ? "size-8 fill-current text-amber-500"
+                  : "size-8 fill-current text-destructive"
+            }
+          />
+          <span className="font-semibold">{pool.health}</span>
+        </CardContent>
+      </Card>
       <div className="grid gap-4 md:grid-cols-2">
         {[
           { title: "Scan / scrub", value: pool.scan },
@@ -498,60 +481,38 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         issues={poolIssues}
         emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
       />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{pool.name}</CardTitle>
-            <CardDescription>
-              {formatBytes(pool.size_bytes)} total pool size
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool list -H -p -o name,size,alloc,free,health">
-                Pool size, allocated space, free space, and health reported by
-                OpenZFS. The chart&apos;s percentage is allocated divided by
-                allocated plus free.
-              </PanelHelp>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <UsageDonut
-              usedBytes={pool.allocated_bytes}
-              availableBytes={pool.free_bytes}
-              percent={pool.used_percent}
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle>Pool capacity</CardTitle>
+          <CardDescription>
+            {formatBytes(pool.size_bytes)} total pool size
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <span className="font-semibold tabular-nums">
+            {pool.used_percent.toFixed(0)}% used
+          </span>
+          <div
+            role="progressbar"
+            aria-label="Pool capacity used"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={pool.used_percent}
+            className="h-3 overflow-hidden rounded-full bg-muted"
+          >
+            <div
+              className="h-full bg-chart-3"
+              style={{
+                width: `${Math.max(0, Math.min(100, pool.used_percent))}%`,
+              }}
             />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Datasets</CardTitle>
-            <CardDescription>
-              {datasets.length} dataset{datasets.length === 1 ? "" : "s"}
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
-                Filesystems and volumes in this pool. The percentage is each
-                dataset&apos;s used space divided by used plus available space;
-                available can also be constrained by quotas and reservations.
-              </PanelHelp>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-3">
-              {datasets.map((dataset) => (
-                <div
-                  key={dataset.path}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span className="truncate">{dataset.path}</span>
-                  <Badge variant={statusVariant(dataset.state)}>
-                    {dataset.used_percent.toFixed(0)}%
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
+            <span>{formatBytes(pool.allocated_bytes)} used</span>
+            <span>{formatBytes(pool.free_bytes)} available</span>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -638,12 +599,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
           )}
         </CardContent>
       </Card>
-
-      <SnapshotsPanel
-        snapshots={snapshots}
-        snapshotUsedBytes={pool.snapshot_used_bytes}
-        showDataset
-      />
     </div>
   )
 }
