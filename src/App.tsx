@@ -280,11 +280,13 @@ function IssuesCard({
   description,
   emptyDescription,
   includeCommands = false,
+  poolName,
 }: {
   issues: (Omit<Issue, "severity"> & { severity: State | "info" })[]
   description?: string
   emptyDescription: string
   includeCommands?: boolean
+  poolName?: string
 }) {
   return (
     <Card>
@@ -314,7 +316,7 @@ function IssuesCard({
               <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
                 {issue.severity === "info" ? <InfoIcon /> : <AlertCircleIcon />}
                 <AlertTitle className="flex items-center gap-2">
-                  {issue.name}
+                  {issue.name !== poolName && issue.name}
                   <Badge
                     variant={
                       issue.severity === "info"
@@ -543,6 +545,7 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
         </Card>
       </div>
       <IssuesCard
+        poolName={pool.name}
         issues={
           pool.removal?.trim() &&
           pool.removal.trim().toLowerCase() !== "none requested"
