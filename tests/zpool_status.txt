@@ -22,3 +22,18 @@ config:
 	    disk-8  ONLINE       0     0     0
 
 errors: No known data errors
+
+  pool: archive
+ state: ONLINE
+  scan: scrub in progress since Wed Nov  4 23:01:45 2026
+	2.14T / 16.1T scanned at 1.78G/s, 628G / 16.1T issued at 521M/s
+	0B repaired, 3.82% done, 08:37:27 to go
+config:
+
+	NAME          STATE     READ WRITE CKSUM
+	archive       ONLINE       0     0     0
+	  mirror-0    ONLINE       0     0     0
+	    archive-1 ONLINE       0     0     0
+	    archive-2 ONLINE       0     0     0
+
+errors: No known data errors
