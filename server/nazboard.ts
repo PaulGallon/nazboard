@@ -511,6 +511,41 @@ function overallForFeatures(
   )
 }
 
+export function parsePoolMaintenance(output: string, name: string) {
+  const block =
+    output
+      .split(/(?=^\s*pool:)/m)
+      .find((part) => part.match(/^\s*pool:\s*(\S+)/m)?.[1] === name) ?? ""
+  const section = (key: string) => {
+    const lines = block.split(/\r?\n/)
+    const start = lines.findIndex((line) =>
+      line.trimStart().startsWith(key + ":")
+    )
+    if (start < 0) return null
+    const result = [
+      lines[start]
+        .trim()
+        .slice(key.length + 1)
+        .trim(),
+    ]
+    for (const line of lines.slice(start + 1)) {
+      if (!line.trim() || /^\s*[a-z]+:/i.test(line)) break
+      result.push(line.trim())
+    }
+    return result.join("\n")
+  }
+  const scan = section("scan")
+  const date = scan?.match(/^scrub repaired .* on (.+)$/m)?.[1]
+  const timestamp = date ? Date.parse(date) : NaN
+  return {
+    scan,
+    removal: section("remove"),
+    last_scrub_at: Number.isFinite(timestamp)
+      ? new Date(timestamp).toISOString()
+      : null,
+  }
+}
+
 export function parsePools(results: CommandResult[]): PoolStatus[] {
   const poolList = results.find((result) => result.title === "zpool list")
   if (!poolList || !commandOk(poolList)) {
@@ -538,6 +573,12 @@ export function parsePools(results: CommandResult[]): PoolStatus[] {
 
       const pool: PoolStatus = {
         name,
+        ...parsePoolMaintenance(
+          results.find(
+            (result) => result.title === "zpool status" && commandOk(result)
+          )?.stdout ?? "",
+          name
+        ),
         size_bytes: size,
         allocated_bytes: allocated,
         free_bytes: free,
@@ -1015,6 +1056,17 @@ function collectIssues(
   }
 
   for (const pool of pools) {
+    if (
+      pool.last_scrub_at &&
+      Date.now() - Date.parse(pool.last_scrub_at) > 31 * 24 * 60 * 60 * 1000
+    ) {
+      issues.push({
+        severity: "warn",
+        scope: "pool",
+        name: pool.name,
+        message: "Last scrub was more than 31 days ago",
+      })
+    }
     if (pool.health.toUpperCase() !== "ONLINE") {
       issues.push({
         severity: pool.health.toUpperCase() === "DEGRADED" ? "warn" : "error",

@@ -102,6 +102,9 @@ export type VdevStatus = DiskStatus & {
 }
 
 export type PoolStatus = {
+  scan?: string | null
+  removal?: string | null
+  last_scrub_at?: string | null
   name: string
   size_bytes: number
   allocated_bytes: number
