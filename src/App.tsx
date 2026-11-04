@@ -474,29 +474,25 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 lg:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[12rem_minmax(0,1fr)_minmax(0,1fr)]">
         <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Health</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-1 items-center justify-center">
-            <div
-              className="flex items-center justify-center"
-              role="img"
-              title={pool.health}
-              aria-label={`Pool health: ${pool.health}`}
-            >
+            <CardAction>
               <HeartIcon
                 aria-hidden="true"
                 className={
                   pool.health === "ONLINE"
-                    ? "size-8 fill-current text-chart-2"
+                    ? "size-5 fill-current text-chart-2"
                     : pool.health === "DEGRADED"
-                      ? "size-8 fill-current text-amber-500"
-                      : "size-8 fill-current text-destructive"
+                      ? "size-5 fill-current text-amber-500"
+                      : "size-5 fill-current text-destructive"
                 }
               />
-            </div>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">{pool.health}</p>
           </CardContent>
         </Card>
         <Card className="min-w-0">
