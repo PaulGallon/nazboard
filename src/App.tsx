@@ -494,7 +494,7 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
       </Card>
       <div className="grid gap-4 md:grid-cols-2">
         {[
-          { title: "Scan / scrub", value: pool.scan },
+          { title: "Scan", value: pool.scan },
           { title: "Removal", value: pool.removal },
         ].map(({ title, value }) => (
           <Card key={title}>
