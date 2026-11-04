@@ -313,34 +313,40 @@ function IssuesCard({
           </Empty>
         ) : (
           <div className="flex flex-col gap-2">
-            {issues.map((issue) => (
-              <Alert
-                key={`${issue.scope}-${issue.name}-${issue.message}`}
-                className="items-center gap-y-0 px-3 py-3 has-[>svg]:gap-x-3 *:[svg]:translate-y-0 *:[svg]:self-center"
-              >
-                {issue.severity === "warn" ? (
-                  <TriangleAlertIcon className="size-5 text-amber-500" />
-                ) : issue.severity === "error" ? (
-                  <AlertCircleIcon className="size-5 text-destructive" />
-                ) : issue.severity === "info" ? (
-                  <InfoIcon className="size-5 text-sky-500" />
-                ) : (
-                  <CheckCircle2Icon className="size-5 text-chart-2" />
-                )}
-                <AlertTitle>
-                  <span className="sr-only">
-                    {issue.severity === "info"
-                      ? "Info"
-                      : stateLabel(issue.severity)}
-                    :{" "}
-                  </span>
-                  {issue.name !== poolName ? issue.name : issue.message}
-                </AlertTitle>
-                {issue.name !== poolName && (
-                  <AlertDescription>{issue.message}</AlertDescription>
-                )}
-              </Alert>
-            ))}
+            {issues.map((issue) => {
+              const message =
+                issue.scope === "dataset" && /^\d+% used$/.test(issue.message)
+                  ? `Dataset is nearly full: ${issue.message.replace(" used", " of available space used")}.`
+                  : issue.message
+              return (
+                <Alert
+                  key={`${issue.scope}-${issue.name}-${issue.message}`}
+                  className="items-center gap-y-0 px-3 py-3 has-[>svg]:gap-x-3 *:[svg]:translate-y-0 *:[svg]:self-center"
+                >
+                  {issue.severity === "warn" ? (
+                    <TriangleAlertIcon className="size-5 text-amber-500" />
+                  ) : issue.severity === "error" ? (
+                    <AlertCircleIcon className="size-5 text-destructive" />
+                  ) : issue.severity === "info" ? (
+                    <InfoIcon className="size-5 text-sky-500" />
+                  ) : (
+                    <CheckCircle2Icon className="size-5 text-chart-2" />
+                  )}
+                  <AlertTitle>
+                    <span className="sr-only">
+                      {issue.severity === "info"
+                        ? "Info"
+                        : stateLabel(issue.severity)}
+                      :{" "}
+                    </span>
+                    {issue.name !== poolName ? issue.name : message}
+                  </AlertTitle>
+                  {issue.name !== poolName && (
+                    <AlertDescription>{message}</AlertDescription>
+                  )}
+                </Alert>
+              )
+            })}
           </div>
         )}
       </CardContent>
