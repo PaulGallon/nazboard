@@ -422,6 +422,11 @@ describe("status payload", () => {
 
       assert.equal(status.overall.message, "All pools are healthy")
       assert.equal(status.pools[0].name, "storage01")
+      const scanningPool = status.pools.find((pool) => pool.name === "archive")
+      assert.ok(scanningPool)
+      assert.match(scanningPool.scan!, /scrub in progress/)
+      assert.match(scanningPool.scan!, /3.82% done, 08:37:27 to go/)
+      assert.equal(scanningPool.last_scrub_at, null)
       assert.equal(status.pools[0].datasets[0].path, "storage01")
       assert.equal(status.pools[0].datasets[0].children.length, 2)
       assert.equal(status.pools[0].vdevs.length, 4)

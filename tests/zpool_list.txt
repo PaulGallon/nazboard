@@ -1,1 +1,2 @@
 storage01	8.39T	7.72T	686G	ONLINE
+archive	20T	16.1T	3.9T	ONLINE
