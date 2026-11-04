@@ -501,7 +501,13 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
             <CardAction>
               <HardDriveIcon
                 aria-hidden="true"
-                className="size-5 text-muted-foreground"
+                className={
+                  pool.used_percent >= 85
+                    ? "size-5 text-destructive"
+                    : pool.used_percent >= 75
+                      ? "size-5 text-amber-500"
+                      : "size-5 text-chart-2"
+                }
               />
             </CardAction>
           </CardHeader>
@@ -539,7 +545,13 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
             <CardAction>
               <ClockIcon
                 aria-hidden="true"
-                className="size-5 text-muted-foreground"
+                className={
+                  scrubDays === null
+                    ? "size-5 text-muted-foreground"
+                    : scrubDays > 31
+                      ? "size-5 text-amber-500"
+                      : "size-5 text-chart-2"
+                }
               />
             </CardAction>
           </CardHeader>
