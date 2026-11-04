@@ -1,18 +1,21 @@
 import * as React from "react"
 import {
   AlertCircleIcon,
+  TriangleAlertIcon,
   CheckIcon,
   ChevronDownIcon,
   CheckCircle2Icon,
   ClockIcon,
   HardDriveIcon,
+  InfoIcon,
+  HeartIcon,
   TerminalIcon,
 } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { DiskHealthView } from "@/components/disk-health"
 import { PanelHelp } from "@/components/panel-help"
-import { DatasetUsageDonut, UsageDonut } from "@/components/usage-donut"
+import { DatasetUsageDonut } from "@/components/usage-donut"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -100,7 +103,7 @@ function statusVariant(
     return "destructive"
   }
   if (state === "warn") {
-    return "outline"
+    return "warning"
   }
   return "secondary"
 }
@@ -278,11 +281,13 @@ function IssuesCard({
   description,
   emptyDescription,
   includeCommands = false,
+  poolName,
 }: {
-  issues: Issue[]
+  issues: (Omit<Issue, "severity"> & { severity: State | "info" })[]
   description?: string
   emptyDescription: string
   includeCommands?: boolean
+  poolName?: string
 }) {
   return (
     <Card>
@@ -308,18 +313,40 @@ function IssuesCard({
           </Empty>
         ) : (
           <div className="flex flex-col gap-2">
-            {issues.map((issue) => (
-              <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
-                <AlertCircleIcon />
-                <AlertTitle className="flex items-center gap-2">
-                  {issue.name}
-                  <Badge variant={statusVariant(issue.severity)}>
-                    {stateLabel(issue.severity)}
-                  </Badge>
-                </AlertTitle>
-                <AlertDescription>{issue.message}</AlertDescription>
-              </Alert>
-            ))}
+            {issues.map((issue) => {
+              const message =
+                issue.scope === "dataset" && /^\d+% used$/.test(issue.message)
+                  ? `Dataset is nearly full: ${issue.message.replace(" used", " of available space used")}.`
+                  : issue.message
+              return (
+                <Alert
+                  key={`${issue.scope}-${issue.name}-${issue.message}`}
+                  className="items-center gap-y-0 px-3 py-3 has-[>svg]:gap-x-3 *:[svg]:translate-y-0 *:[svg]:self-center"
+                >
+                  {issue.severity === "warn" ? (
+                    <TriangleAlertIcon className="size-5 text-amber-500" />
+                  ) : issue.severity === "error" ? (
+                    <AlertCircleIcon className="size-5 text-destructive" />
+                  ) : issue.severity === "info" ? (
+                    <InfoIcon className="size-5 text-sky-500" />
+                  ) : (
+                    <CheckCircle2Icon className="size-5 text-chart-2" />
+                  )}
+                  <AlertTitle>
+                    <span className="sr-only">
+                      {issue.severity === "info"
+                        ? "Info"
+                        : stateLabel(issue.severity)}
+                      :{" "}
+                    </span>
+                    {issue.name !== poolName ? issue.name : message}
+                  </AlertTitle>
+                  {issue.name !== poolName && (
+                    <AlertDescription>{message}</AlertDescription>
+                  )}
+                </Alert>
+              )
+            })}
           </div>
         )}
       </CardContent>
@@ -425,9 +452,24 @@ function Overview({ status }: { status: StatusPayload }) {
   )
 }
 
-function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
-  const datasets = flattenDatasets(pool.datasets)
-  const snapshots = datasets.flatMap((dataset) => dataset.snapshots)
+function PoolView({
+  pool,
+  issues,
+  generatedAt,
+}: {
+  pool: PoolStatus
+  issues: Issue[]
+  generatedAt: string
+}) {
+  const scrubTimestamp = pool.last_scrub_at
+    ? Date.parse(pool.last_scrub_at)
+    : NaN
+  const scrubDays = Number.isFinite(scrubTimestamp)
+    ? Math.max(
+        0,
+        Math.floor((Date.parse(generatedAt) - scrubTimestamp) / 86_400_000)
+      )
+    : null
   const diskNames = new Set(
     pool.vdevs.flatMap((vdev) => vdev.disks.map((disk) => disk.name))
   )
@@ -443,115 +485,117 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
+      <div className="grid gap-4 lg:grid-cols-[12rem_minmax(0,1fr)_minmax(0,1fr)]">
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Health</CardTitle>
+            <CardAction>
+              <HeartIcon
+                aria-hidden="true"
+                className={
+                  pool.health === "ONLINE"
+                    ? "size-5 fill-current text-chart-2"
+                    : pool.health === "DEGRADED"
+                      ? "size-5 fill-current text-amber-500"
+                      : "size-5 fill-current text-destructive"
+                }
+              />
+            </CardAction>
           </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {pool.health}
+          <CardContent>
+            <p className="text-3xl font-semibold">{pool.health}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
-            <CardTitle>Vdevs</CardTitle>
+            <CardTitle>Pool capacity</CardTitle>
+            <CardAction>
+              <HardDriveIcon
+                aria-hidden="true"
+                className={
+                  pool.used_percent >= 85
+                    ? "size-5 text-destructive"
+                    : pool.used_percent >= 75
+                      ? "size-5 text-amber-500"
+                      : "size-5 text-chart-2"
+                }
+              />
+            </CardAction>
           </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {pool.vdevs.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Datasets</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {datasets.length}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Snapshots</CardTitle>
-          </CardHeader>
-          <CardContent className="text-3xl font-semibold tabular-nums">
-            {snapshots.length}
-          </CardContent>
-        </Card>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          { title: "Scan / scrub", value: pool.scan },
-          { title: "Removal", value: pool.removal },
-        ].map(({ title, value }) => (
-          <Card key={title}>
-            <CardHeader>
-              <CardTitle>{title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap">
-                {value ?? "No information reported"}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <IssuesCard
-        issues={poolIssues}
-        emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
-      />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{pool.name}</CardTitle>
-            <CardDescription>
+          <CardContent className="flex flex-col gap-3">
+            <span className="text-3xl font-semibold tabular-nums">
+              {pool.used_percent.toFixed(0)}% used
+            </span>
+            <p className="text-muted-foreground">
               {formatBytes(pool.size_bytes)} total pool size
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zpool list -H -p -o name,size,alloc,free,health">
-                Pool size, allocated space, free space, and health reported by
-                OpenZFS. The chart&apos;s percentage is allocated divided by
-                allocated plus free.
-              </PanelHelp>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <UsageDonut
-              usedBytes={pool.allocated_bytes}
-              availableBytes={pool.free_bytes}
-              percent={pool.used_percent}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Datasets</CardTitle>
-            <CardDescription>
-              {datasets.length} dataset{datasets.length === 1 ? "" : "s"}
-            </CardDescription>
-            <CardAction>
-              <PanelHelp source="zfs list -H -p -o name,used,avail,refer,mountpoint,usedbysnapshots">
-                Filesystems and volumes in this pool. The percentage is each
-                dataset&apos;s used space divided by used plus available space;
-                available can also be constrained by quotas and reservations.
-              </PanelHelp>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-3">
-              {datasets.map((dataset) => (
-                <div
-                  key={dataset.path}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <span className="truncate">{dataset.path}</span>
-                  <Badge variant={statusVariant(dataset.state)}>
-                    {dataset.used_percent.toFixed(0)}%
-                  </Badge>
-                </div>
-              ))}
+            </p>
+            <div
+              role="progressbar"
+              aria-label="Pool capacity used"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pool.used_percent}
+              className="h-3 overflow-hidden rounded-full bg-muted"
+            >
+              <div
+                className="h-full bg-chart-3"
+                style={{
+                  width: `${Math.max(0, Math.min(100, pool.used_percent))}%`,
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap justify-between gap-2 text-muted-foreground">
+              <span>{formatBytes(pool.allocated_bytes)} used</span>
+              <span>{formatBytes(pool.free_bytes)} available</span>
             </div>
           </CardContent>
         </Card>
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Scan</CardTitle>
+            <CardAction>
+              <ClockIcon
+                aria-hidden="true"
+                className={
+                  scrubDays === null
+                    ? "size-5 text-muted-foreground"
+                    : scrubDays > 31
+                      ? "size-5 text-amber-500"
+                      : "size-5 text-chart-2"
+                }
+              />
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-3xl font-semibold tabular-nums">
+              {scrubDays === null
+                ? "No completed scrub recorded"
+                : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} ago`}
+            </p>
+            <p className="whitespace-pre-wrap text-muted-foreground">
+              {pool.scan ?? "No scan information reported"}
+            </p>
+          </CardContent>
+        </Card>
       </div>
+      <IssuesCard
+        poolName={pool.name}
+        issues={
+          pool.removal?.trim() &&
+          pool.removal.trim().toLowerCase() !== "none requested"
+            ? [
+                ...poolIssues,
+                {
+                  severity: "info",
+                  scope: "pool",
+                  name: pool.name,
+                  message: pool.removal,
+                },
+              ]
+            : poolIssues
+        }
+        emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
+      />
 
       <Card>
         <CardHeader>
@@ -638,12 +682,6 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
           )}
         </CardContent>
       </Card>
-
-      <SnapshotsPanel
-        snapshots={snapshots}
-        snapshotUsedBytes={pool.snapshot_used_bytes}
-        showDataset
-      />
     </div>
   )
 }
@@ -979,7 +1017,11 @@ function App() {
           ) : selection.kind === "raw" && status.zfs.enabled ? (
             <RawView commands={status.commands} />
           ) : selectedPool ? (
-            <PoolView pool={selectedPool} issues={status.issues} />
+            <PoolView
+              pool={selectedPool}
+              issues={status.issues}
+              generatedAt={status.generated_at}
+            />
           ) : selectedDataset && selectedDatasetPool ? (
             <DatasetView
               key={selectedDataset.path}
