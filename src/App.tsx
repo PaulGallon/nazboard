@@ -521,7 +521,7 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
             <p className="text-3xl font-semibold tabular-nums">
               {scrubDays === null
                 ? "No completed scrub recorded"
-                : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} since last scrub`}
+                : `${scrubDays} ${scrubDays === 1 ? "day" : "days"} ago`}
             </p>
             <p className="whitespace-pre-wrap text-muted-foreground">
               {pool.scan ?? "No scan information reported"}
