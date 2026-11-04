@@ -477,6 +477,23 @@ function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
           </CardContent>
         </Card>
       </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {[
+          { title: "Scan / scrub", value: pool.scan },
+          { title: "Removal", value: pool.removal },
+        ].map(({ title, value }) => (
+          <Card key={title}>
+            <CardHeader>
+              <CardTitle>{title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap">
+                {value ?? "No information reported"}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
       <IssuesCard
         issues={poolIssues}
         emptyDescription={`${pool.name} has no detected pool, vdev, disk, or dataset issues.`}
