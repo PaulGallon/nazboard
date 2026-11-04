@@ -314,7 +314,10 @@ function IssuesCard({
         ) : (
           <div className="flex flex-col gap-2">
             {issues.map((issue) => (
-              <Alert key={`${issue.scope}-${issue.name}-${issue.message}`}>
+              <Alert
+                key={`${issue.scope}-${issue.name}-${issue.message}`}
+                className="items-center gap-y-0 px-3 py-3 has-[>svg]:gap-x-3 *:[svg]:translate-y-0 *:[svg]:self-center"
+              >
                 {issue.severity === "warn" ? (
                   <TriangleAlertIcon className="size-5 text-amber-500" />
                 ) : issue.severity === "error" ? (
