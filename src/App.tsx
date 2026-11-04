@@ -452,12 +452,23 @@ function Overview({ status }: { status: StatusPayload }) {
   )
 }
 
-function PoolView({ pool, issues }: { pool: PoolStatus; issues: Issue[] }) {
+function PoolView({
+  pool,
+  issues,
+  generatedAt,
+}: {
+  pool: PoolStatus
+  issues: Issue[]
+  generatedAt: string
+}) {
   const scrubTimestamp = pool.last_scrub_at
     ? Date.parse(pool.last_scrub_at)
     : NaN
   const scrubDays = Number.isFinite(scrubTimestamp)
-    ? Math.max(0, Math.floor((Date.now() - scrubTimestamp) / 86_400_000))
+    ? Math.max(
+        0,
+        Math.floor((Date.parse(generatedAt) - scrubTimestamp) / 86_400_000)
+      )
     : null
   const diskNames = new Set(
     pool.vdevs.flatMap((vdev) => vdev.disks.map((disk) => disk.name))
@@ -1006,7 +1017,11 @@ function App() {
           ) : selection.kind === "raw" && status.zfs.enabled ? (
             <RawView commands={status.commands} />
           ) : selectedPool ? (
-            <PoolView pool={selectedPool} issues={status.issues} />
+            <PoolView
+              pool={selectedPool}
+              issues={status.issues}
+              generatedAt={status.generated_at}
+            />
           ) : selectedDataset && selectedDatasetPool ? (
             <DatasetView
               key={selectedDataset.path}
