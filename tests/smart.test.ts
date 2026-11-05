@@ -347,3 +347,59 @@ it("excludes virtual SMART results before calculating health", async () => {
   assert.equal(health.state, "healthy")
   assert.equal(health.message, "All 1 physical disks report good health.")
 })
+
+it("excludes absent scan failures while retaining present failures and NVMe disks", async () => {
+  const queried: string[] = []
+  const health = await getDiskHealth(async (_title, command) => {
+    if (command[0] === "lsblk")
+      return result({
+        blockdevices: [
+          { path: "/dev/sda", type: "disk" },
+          { path: "/dev/sdb", type: "disk" },
+          { path: "/dev/nvme0n1", type: "disk" },
+        ],
+      })
+    if (command.includes("--scan-open"))
+      return result({
+        devices: [
+          {
+            name: "/dev/sdaa",
+            type: "scsi",
+            open_error: "No such device or address",
+          },
+          { name: "/dev/sda", type: "ata" },
+          { name: "/dev/sdb", type: "scsi", open_error: "Permission denied" },
+          { name: "/dev/nvme0", type: "nvme" },
+        ],
+      })
+    queried.push(command.at(-1)!)
+    return result(
+      command.includes("/dev/sdb") ? {} : { smart_status: { passed: true } }
+    )
+  })
+  assert.equal(queried.includes("/dev/sdaa"), false)
+  assert.equal(health.disks.length, 3)
+  assert.equal(
+    health.disks.find((disk) => disk.device === "/dev/sdb")?.state,
+    "warning"
+  )
+  assert.equal(
+    health.disks.find((disk) => disk.device === "/dev/nvme0n1")?.state,
+    "healthy"
+  )
+})
+
+it("retains scan failures when the block inventory is unavailable", async () => {
+  const health = await getDiskHealth(async (_title, command) => {
+    if (command[0] === "lsblk") return result({})
+    if (command.includes("--scan-open"))
+      return result({
+        devices: [
+          { name: "/dev/sda", type: "scsi", open_error: "Permission denied" },
+        ],
+      })
+    return result({})
+  })
+  assert.equal(health.disks.length, 1)
+  assert.equal(health.state, "warning")
+})
