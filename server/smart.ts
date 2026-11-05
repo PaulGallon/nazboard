@@ -12,6 +12,7 @@ type SmartDevice = {
   name: string
   type: string
   protocol: string
+  openError?: string | null
 }
 
 type BlockIdentity = {
@@ -109,6 +110,7 @@ function parseDevices(result: CommandResult): SmartDevice[] {
         name,
         type,
         protocol: string(device?.protocol) ?? "Unknown",
+        openError: string(device?.open_error),
       },
     ]
   })
@@ -550,8 +552,16 @@ export async function getDiskHealth(
     runCommand("Block device identity", BLOCK_DEVICE_COMMAND),
   ])
   const identities = parseBlockIdentities(blockDevices)
+  // lsblk enumerates current sysfs devices rather than stale container /dev nodes.
+  // If inventory collection fails, retain scan entries so failures stay visible.
+  const inventoryAvailable = Array.isArray(
+    parseJson(blockDevices)?.blockdevices
+  )
   const devices = parseDevices(scan).filter((device) => {
     const identity = identityForDevice(device, identities)
+    if (inventoryAvailable && device.openError && !identity) {
+      return false
+    }
     return !isVirtualDisk(device.name, identity?.manufacturer, identity?.model)
   })
   if (!parseJson(scan)) {
